@@ -1464,6 +1464,12 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // 한 번 더 자동 로그인하도록 password를 넘긴다.
   let targetPage = page;
   switch (serviceKey) {
+    case 'portal_home':
+      // 위의 공통 진입 절차(포털 홈 이동 + 로그인 + closeAnyPopups)만으로 이미 목적지에 도착한
+      // 상태라 추가로 할 일이 없다 - 그대로 머무른다.
+      console.log('[PortalPet] 업무포털 메인 화면에 머무름');
+      targetPage = page;
+      break;
     case 'nice':
       if (alreadyInTargetSystem) {
         // (수정) 이미 나이스에 있는 상태에서 "나이스" 헤더 버튼을 다시 눌렀을 때는 goToPortalMenu를

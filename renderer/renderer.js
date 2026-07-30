@@ -166,6 +166,9 @@ function makeApprovalCheckButton(label) {
   return btn;
 }
 
+// ===== 업무포털 메인(예: https://goe.eduptl.kr/bpm_man_mn00_001.do) - 세 시스템 메뉴 위에 별도로 =====
+document.getElementById('portal-home-wrap').appendChild(makeButton('portal_home', '업무포털 메인', true));
+
 COLUMNS.forEach(({ key, label, subs }) => {
   const col = document.createElement('div');
   col.className = 'service-col';

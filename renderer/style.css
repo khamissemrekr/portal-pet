@@ -47,6 +47,9 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 }
 .panel-header select { background: #444; color: #fff; border: none; border-radius: 6px; padding: 2px 4px; }
 
+#portal-home-wrap { margin-bottom: 6px; }
+#portal-home-wrap .service-btn { width: 100%; box-sizing: border-box; }
+
 #services { display: flex; gap: 6px; align-items: flex-start; }
 .service-col { flex: 1 1 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .service-btn {
