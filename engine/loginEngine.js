@@ -1447,9 +1447,9 @@ const SERVICE_SYSTEM = {
   gone: 'gone', gone_msg: 'gone', gone_ai: 'gone', gone_schedule: 'gone',
 };
 
-// 탭 재사용 여부 판단 전용 - "업무포털 메인"도 하나의 그룹으로 취급해서, 나이스/K-에듀파인/
-// G-ONE과 서로 넘나들 때만 새 탭을 연다(사용자 요청: 같은 시스템 안에서는 새 탭 대신 현재 탭).
-const TAB_GROUP = { ...SERVICE_SYSTEM, portal_home: 'portal_home' };
+// 탭 재사용 여부 판단 전용 - 나이스/K-에듀파인/G-ONE 서로 넘나들 때만 새 탭을 연다(사용자 요청:
+// 같은 시스템 안에서는 새 탭 대신 현재 탭). SERVICE_SYSTEM과 동일하지만 의미를 분리해서 관리한다.
+const TAB_GROUP = { ...SERVICE_SYSTEM };
 
 /**
  * PortalPet에서 서비스 버튼 클릭 시 호출되는 진입점.
@@ -1507,18 +1507,6 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // 한 번 더 자동 로그인하도록 password를 넘긴다.
   let targetPage = page;
   switch (serviceKey) {
-    case 'portal_home':
-      // (수정) 포털 홈의 공지 팝업(예: "나이스시스템 점검 안내")은 메뉴(a.menuBtn)보다 늦게
-      // 비동기로 뜨는 경우가 있다(실측 확인: 스크린샷 - 위 ensureLoggedInOnPortalHome의
-      // closeAnyPopups가 지나간 뒤에야 나타남). 다른 메뉴(나이스/K-에듀파인/G-ONE)는 포털 홈에
-      // 도착하자마자 바로 다른 화면으로 넘어가버려서 이 팝업이 뜨기 전에 화면이 바뀌지만,
-      // "업무포털 메인"은 그 자리에 계속 머무르기 때문에 뒤늦게 뜨는 팝업이 그대로 남는다 -
-      // 잠깐 더 기다렸다가 한 번 더 닫기를 시도한다.
-      await targetPage.waitForTimeout(1500);
-      await closeAnyPopups(targetPage);
-      console.log('[PortalPet] 업무포털 메인 화면에 머무름');
-      targetPage = page;
-      break;
     case 'nice':
       if (alreadyInTargetSystem) {
         // (수정) 이미 나이스에 있는 상태에서 "나이스" 헤더 버튼을 다시 눌렀을 때는 goToPortalMenu를
