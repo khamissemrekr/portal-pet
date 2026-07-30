@@ -1619,4 +1619,24 @@ async function checkEdufineApprovalCount(subdomain, password, browserProfile = n
   return { ok: true, total: result.total, urgent: result.urgent };
 }
 
-module.exports = { launchService, checkEdufineApprovalCount };
+/**
+ * (버그 수정) launchService/checkEdufineApprovalCount는 sharedContext/sharedPage/mainServiceTabs
+ * 같은 모듈 전역 상태를 공유한다. 그런데 "프로그램 실행 시 자동 실행(메신저/일정)"이 main.js에서
+ * 백그라운드로 진행되는 동안 사용자가 다른 메뉴 버튼을 누르면, 두 launchService 호출이 동시에
+ * 진행되면서 서로의 탭을 닫거나 서로 다른 흐름의 페이지 참조를 덮어써 "Target page, context or
+ * browser has been closed" 같은 오류로 이어지고 심하면 브라우저 컨텍스트 자체가 죽었다(실측
+ * 확인: 부팅 자동 실행의 gone_schedule이 끝나기 전에 "업무포털 메인"을 눌렀더니 재현됨). 렌더러의
+ * "launching" 플래그는 렌더러가 직접 시작한 클릭끼리만 막아주고, 백그라운드 자동 실행까지는
+ * 못 막는다 - 그래서 엔진 쪽에서 호출을 한 번에 하나씩만 실행되도록 순서를 강제한다.
+ */
+let taskQueue = Promise.resolve();
+function runQueued(fn) {
+  const result = taskQueue.then(fn, fn); // 이전 작업이 성공하든 실패하든 다음 작업은 실행돼야 함
+  taskQueue = result.then(() => {}, () => {}); // 큐 자체는 실패해도 끊기지 않고 계속 이어짐
+  return result;
+}
+
+module.exports = {
+  launchService: (...args) => runQueued(() => launchService(...args)),
+  checkEdufineApprovalCount: (...args) => runQueued(() => checkEdufineApprovalCount(...args)),
+};
