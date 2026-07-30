@@ -141,7 +141,15 @@ function createTray() {
     { label: '미니 모드', type: 'checkbox', checked: false, click: (item) => item.checked ? enterMiniMode() : exitMiniMode() },
     { type: 'separator' },
     { label: 'Windows 시작 시 자동 실행', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
-      click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }) },
+      // 개발 모드(npm start)에서 이 옵션을 켜면 path가 electron.exe만 가리켜서(앱 경로 없이) 부팅 시
+      // Electron 기본 화면만 뜨는 문제가 있었다. app.isPackaged일 때만 기본값(process.execPath)을
+      // 쓰고, 개발 모드에서는 실제 앱 폴더를 args로 명시해 같은 문제가 재발하지 않게 한다.
+      click: (item) => {
+        const settings = app.isPackaged
+          ? { openAtLogin: item.checked }
+          : { openAtLogin: item.checked, path: process.execPath, args: [path.resolve(process.argv[1] || '.')] };
+        app.setLoginItemSettings(settings);
+      } },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ]);
