@@ -186,6 +186,30 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
   }
 });
 
+// ===== K-에듀파인 결재 건수 확인: 화면 전환 없이(이미 그 화면이면 그대로) 상단 배지만 읽음 =====
+ipcMain.handle('check-edufine-approvals', async () => {
+  const config = credentialStore.loadConfig();
+  const autoLogin = config.autoLogin !== false;
+  if (autoLogin && !config.encryptedPasswordBase64) {
+    return { ok: false, error: 'not-configured' };
+  }
+  if (!(config.subdomain || config.region)) {
+    return { ok: false, error: 'not-configured' };
+  }
+  const subdomain = REGIONS[config.region] || config.subdomain;
+  const password = (autoLogin && config.encryptedPasswordBase64)
+    ? credentialStore.decryptPassword(config.encryptedPasswordBase64)
+    : null;
+
+  try {
+    const result = await loginEngine.checkEdufineApprovalCount(subdomain, password, config.browserProfile || null);
+    return result;
+  } catch (err) {
+    console.error('[PortalPet] check-edufine-approvals failed:', err);
+    return { ok: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.handle('list-chrome-profiles', () => listChromeProfiles());
 ipcMain.handle('get-config', () => credentialStore.loadConfig());
 

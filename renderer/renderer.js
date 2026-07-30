@@ -16,6 +16,7 @@ const COLUMNS = [
       { key: 'giahn', label: '기안문 작성' },
       { key: 'pumui', label: '품의 작성' },
       { key: 'edufine_approval', label: '공문 결재' },
+      { key: 'edufine_check', label: '결재 건수 확인' }, // 화면 이동 없이 상단 배지만 읽어와 캐릭터에 표시
     ],
   },
   {
@@ -111,12 +112,68 @@ function makeButton(key, label, isHeader) {
   return btn;
 }
 
+// ===== K-에듀파인 결재 대기 건수 확인 =====
+// launchService(브라우저 화면 전환)와 달리, 이미 있던 화면을 그대로 둔 채 상단 상태바의
+// "결재(긴급) N(N)" 배지만 읽어와서 캐릭터 위에 배지로 표시한다. 버튼 클릭으로만 동작하고
+// 백그라운드에서 자동으로 반복 확인하지는 않는다(그러면 자동화용 크롬 창이 주기적으로 떠서
+// 작업 중인 화면을 방해할 수 있어서 - 은애님과 상의해서 수동 확인 방식으로 결정).
+const approvalBadgeEl = document.getElementById('approval-badge');
+function updateApprovalBadge(total, urgent) {
+  if (!approvalBadgeEl) return;
+  if (total > 0) {
+    approvalBadgeEl.textContent = total > 99 ? '99+' : String(total);
+    approvalBadgeEl.title = `결재 대기 ${total}건${urgent > 0 ? ` (긴급 ${urgent}건)` : ''}`;
+    approvalBadgeEl.classList.remove('hidden');
+  } else {
+    approvalBadgeEl.title = '결재 대기 문서 없음';
+    approvalBadgeEl.classList.add('hidden');
+  }
+}
+
+function makeApprovalCheckButton(label) {
+  const btn = document.createElement('button');
+  btn.className = 'service-btn';
+  btn.textContent = label;
+  btn.addEventListener('click', async () => {
+    if (launching) return;
+    launching = true;
+    setButtonsDisabled(true);
+    statusDot.className = 'idle';
+    hideError();
+    setPose('working');
+    try {
+      const result = await window.portalPet.checkEdufineApprovals();
+      if (result.ok) {
+        statusDot.className = 'connected';
+        setPose('success', { autoResetMs: 2000 });
+        updateApprovalBadge(result.total, result.urgent);
+      } else {
+        statusDot.className = 'error';
+        setPose('error', { autoResetMs: 2500 });
+        showError(result.error === 'not-configured'
+          ? '먼저 설정에서 지역/비밀번호를 저장해 주세요.'
+          : (result.error || '결재 건수를 확인하지 못했습니다.'));
+      }
+    } catch (e) {
+      statusDot.className = 'error';
+      setPose('error', { autoResetMs: 2500 });
+      showError(e?.message || '결재 건수를 확인하지 못했습니다.');
+    } finally {
+      launching = false;
+      setButtonsDisabled(false);
+    }
+  });
+  return btn;
+}
+
 COLUMNS.forEach(({ key, label, subs }) => {
   const col = document.createElement('div');
   col.className = 'service-col';
   col.appendChild(makeButton(key, label, true));
   subs.forEach(({ key: subKey, label: subLabel }) => {
-    col.appendChild(makeButton(subKey, subLabel, false));
+    col.appendChild(
+      subKey === 'edufine_check' ? makeApprovalCheckButton(subLabel) : makeButton(subKey, subLabel, false)
+    );
   });
   servicesEl.appendChild(col);
 });

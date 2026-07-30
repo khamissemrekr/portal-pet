@@ -1472,4 +1472,76 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   return { ok: true, loggedIn };
 }
 
-module.exports = { launchService };
+/**
+ * K-에듀파인 화면 상단 상태바에는 "결재(긴급) N(N)" 형태의 배지가 있다(실측 확인: 스크린샷).
+ * WebDRM이 우클릭/개발자도구(F12) UI는 막아도, Playwright는 CDP를 통해 페이지 컨텍스트에서
+ * 직접 JS를 실행하므로(page.evaluate) DOM 텍스트를 읽는 것 자체는 막히지 않는다 - 기존의
+ * 모든 자동 클릭(findAndMouseClick 등)도 같은 방식으로 이미 동작하고 있다. 정확한 선택자를
+ * 알아내지 못했으므로, 화면에 보이는 요소 중 이 패턴과 정확히 일치하는(자식 요소가 가장 적은
+ * = 가장 구체적인) 요소를 찾는 텍스트 기반 방식을 쓴다.
+ */
+function findEdufineApprovalCountInPage() {
+  const isVisible = (e) => {
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const regex = /결재\s*\(\s*긴급\s*\)\s*([0-9]+)\s*\(\s*([0-9]+)\s*\)/;
+  const matches = [...document.querySelectorAll('*')]
+    .filter(isVisible)
+    .map((e) => ({ e, text: (e.textContent || '').replace(/\s+/g, ' ').trim() }))
+    .filter(({ text }) => regex.test(text))
+    .sort((a, b) => a.e.children.length - b.e.children.length);
+  if (!matches.length) return null;
+  const m = matches[0].text.match(regex);
+  return { total: parseInt(m[1], 10), urgent: parseInt(m[2], 10) };
+}
+
+/**
+ * 결재 대기 문서 건수를 확인한다(캐릭터에 배지로 표시하기 위한 용도). launchService와 달리
+ * 화면 전환 없이(이미 K-에듀파인에 있으면 그 화면 그대로) 상태바 배지만 읽고 끝낸다.
+ */
+async function checkEdufineApprovalCount(subdomain, password, browserProfile = null) {
+  console.log(`[PortalPet] checkEdufineApprovalCount(${subdomain})`);
+  const context = await getContext(browserProfile, subdomain);
+  const page = await getPage(context);
+  await closeExtraPages(context, page);
+
+  const alreadyOnEdufine = await isOnSystem(page, 'edufine', subdomain);
+  let target = page;
+  if (alreadyOnEdufine) {
+    console.log('[PortalPet] 이미 K-에듀파인에 있음 - 포털 홈 재방문 생략');
+    await closeAnyPopups(target);
+  } else {
+    const portalUrl = buildPortalUrl(subdomain);
+    console.log('[PortalPet] navigating to', portalUrl);
+    await gotoWithRetry(page, portalUrl, { waitUntil: 'domcontentloaded' });
+    const loginResult = await completeCertLoginIfNeeded(page, password);
+    console.log('[PortalPet] login result:', loginResult);
+    const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
+    if (!reachedHome) {
+      throw new Error(
+        '인증서 로그인이 완료되지 않은 것 같습니다 (로그인 페이지에 머물러 있음). ' +
+        '비밀번호나 인증서 상태를 확인한 뒤 다시 시도해 주세요.'
+      );
+    }
+    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
+  }
+
+  await waitForEdufineReady(target);
+  await target.waitForTimeout(500); // 상단 상태바 렌더링 여유
+  const result = await target.evaluate(findEdufineApprovalCountInPage).catch((e) => {
+    console.log('[PortalPet] 결재 건수 배지 읽기 실패:', e.message);
+    return null;
+  });
+
+  await target.bringToFront();
+
+  if (!result) {
+    throw new Error('결재 건수 배지를 화면에서 찾지 못했습니다. K-에듀파인 화면 구성이 바뀌었을 수 있습니다.');
+  }
+  console.log('[PortalPet] 결재 건수:', result);
+  return { ok: true, total: result.total, urgent: result.urgent };
+}
+
+module.exports = { launchService, checkEdufineApprovalCount };

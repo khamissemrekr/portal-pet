@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('portalPet', {
   saveSetup: (data) => ipcRenderer.invoke('save-setup', data),
   deletePassword: () => ipcRenderer.invoke('delete-password'),
   listChromeProfiles: () => ipcRenderer.invoke('list-chrome-profiles'),
+  // K-에듀파인 결재 대기 건수 확인(공문 왔는지) - 버튼 클릭으로만 동작, 자동 백그라운드 폴링은 하지 않음.
+  checkEdufineApprovals: () => ipcRenderer.invoke('check-edufine-approvals'),
   getConfig: () => ipcRenderer.invoke('get-config'),
   // 드래그로 펫 위치 이동: 매 mousemove마다 화면 좌표 델타(dx, dy)만 보낸다 - 창을 프레임
   // 없이 쓰고 있어서(-webkit-app-region: drag는 클릭과 충돌할 수 있어) 직접 구현.
