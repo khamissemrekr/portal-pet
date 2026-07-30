@@ -18,6 +18,7 @@ const PANEL_WIDTH = 300;      // 펼침 패널 폭(px) - 3열 메뉴 구조라 �
 const PANEL_HEIGHT = 360;     // 펼침 패널 높이(px)
 const EDGE_MARGIN = 8;        // 화면 가장자리에서 살짝 보이는 여백(px), 미니모드일 때
 const HOVER_POLL_MS = 150;
+const RELEASES_URL = 'https://github.com/khamissemrekr/portal-pet/releases';
 
 let win;
 let setupWin;
@@ -151,6 +152,9 @@ function createTray() {
           : { openAtLogin: item.checked, path: process.execPath, args: [path.resolve(process.argv[1] || '.')] };
         app.setLoginItemSettings(settings);
       } },
+    { type: 'separator' },
+    { label: `버전 ${app.getVersion()}`, enabled: false },
+    { label: '새 버전 확인 (GitHub Releases)', click: () => shell.openExternal(RELEASES_URL) },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ]);
