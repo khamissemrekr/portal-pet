@@ -16,7 +16,7 @@ const COLUMNS = [
       { key: 'giahn', label: '기안문 작성' },
       { key: 'pumui', label: '품의 작성' },
       { key: 'edufine_approval', label: '공문 결재' },
-      { key: 'edufine_check', label: '결재 건수 확인' }, // 화면 이동 없이 상단 배지만 읽어와 캐릭터에 표시
+      // { key: 'edufine_check', label: '결재 건수 확인' }, // 임시로 화면에서 숨김(다른 수정 먼저 진행) - 코드/커밋은 유지, 이 줄만 주석 해제하면 복원됨
     ],
   },
   {
