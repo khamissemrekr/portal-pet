@@ -5,6 +5,7 @@
 
 const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell } = require('electron');
 const path = require('node:path');
+const os = require('node:os');
 const credentialStore = require('./engine/credentialStore');
 const loginEngine = require('./engine/loginEngine');
 const { REGIONS } = require('./engine/regionMap');
@@ -254,6 +255,22 @@ ipcMain.handle('delete-password', () => {
   return { ok: true };
 });
 
+// Windows 로그인 시 자동 실행(시작프로그램)으로 뜬 경우, G-ONE '메신저' 자동 실행이 브리지
+// 페이지를 거쳐 결국 여는 건 별도의 네이티브 Brity 메신저 앱이다(brityaltsso:// 프로토콜).
+// 그런데 Brity 메신저 자신도 보통 Windows 시작프로그램으로 같이 등록돼 있어서, 부팅 직후에는
+// 아직 그 앱이 초기화(백그라운드 서비스/네트워크 연결) 중일 수 있다 - 이 경우 프로토콜 핸드오프를
+// 받아줄 준비가 안 돼 있어 로그인이 조용히 실패한다(실측 확인: 개발 모드로 부팅 한참 뒤에 수동
+// 실행하면 항상 되는데, exe 설치 후 재부팅 시 자동 실행으로 뜨면 메신저만 안 됨). 컴퓨터가 켜진
+// 지 얼마 안 됐으면(os.uptime()) 다른 시작프로그램들이 자리잡을 시간을 벌어준다.
+const BOOT_SETTLE_MS = 90 * 1000;
+async function waitForSystemToSettleIfJustBooted() {
+  const uptimeMs = os.uptime() * 1000;
+  if (uptimeMs >= BOOT_SETTLE_MS) return;
+  const remainingMs = BOOT_SETTLE_MS - uptimeMs;
+  console.log(`[PortalPet] 부팅 직후로 보임(uptime ${Math.round(uptimeMs / 1000)}초) - Brity 메신저 등 다른 시작프로그램이 준비될 시간을 벌기 위해 ${Math.round(remainingMs / 1000)}초 대기`);
+  await new Promise((resolve) => setTimeout(resolve, remainingMs));
+}
+
 // ===== 프로그램 실행 시 자동 실행(메신저/일정) =====
 // 사용자 설정(체크박스)에 따라 앱이 뜰 때 자동으로 G-ONE 메신저 로그인/일정 페이지를 띄워둔다.
 // "메신저 자동 실행"만 체크: 메신저만. "일정 자동 실행"만 체크: 일정만. 둘 다 체크: 메신저
@@ -271,6 +288,7 @@ async function runStartupAutoLaunch() {
     console.log('[PortalPet] 자동 실행 체크됨 - 그러나 비밀번호가 아직 설정되지 않아 건너뜀');
     return;
   }
+  await waitForSystemToSettleIfJustBooted();
   const subdomain = REGIONS[config.region] || config.subdomain;
   // 자동 로그인이 꺼져 있으면 password를 null로 넘겨 - launchService가 인증서 창에서
   // 사용자의 수동 입력을 기다린다(자동 실행은 되지만 로그인만 직접 하게 됨).

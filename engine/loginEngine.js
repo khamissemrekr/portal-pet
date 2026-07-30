@@ -16,6 +16,23 @@ const { buildPortalUrl, buildNiceUrl, buildEdufineUrl, GONE_URL_BY_SUBDOMAIN } =
 
 const USER_DATA_DIR = () => path.join(app.getPath('userData'), 'PortalPet', 'browser-profile');
 
+/**
+ * launchPersistentContext 직후 첫 페이지 이동은 가끔 net::ERR_ABORTED로 실패한다(실측 확인:
+ * "부팅 직후 자동 실행"으로 새 프로필/새 크롬 프로세스를 막 띄웠을 때 재현됨) - 크롬이 첫 탭을
+ * 자체적으로 초기화(세션 복원/새 탭 페이지 로드 등)하는 도중에 우리 goto가 끼어들면서 취소되는
+ * 것으로 보인다. 한 번 취소돼도 크롬 자체는 멀쩡하므로, 잠깐 기다렸다가 한 번 더 시도하면 된다.
+ */
+async function gotoWithRetry(page, url, opts = {}) {
+  try {
+    return await page.goto(url, opts);
+  } catch (e) {
+    if (!/ERR_ABORTED/.test(e.message || '')) throw e;
+    console.log(`[PortalPet] goto(${url}) aborted (cold browser start로 보임) - 1초 뒤 재시도`);
+    await page.waitForTimeout(1000);
+    return page.goto(url, opts);
+  }
+}
+
 let sharedContext = null;
 let sharedPage = null; // 클릭마다 새 탭을 만들지 않고 하나의 탭을 계속 재사용한다.
 let lastBrowserProfileKey = null; // 프로필을 바꾸면 기존 컨텍스트를 버리고 새로 띄워야 한다.
@@ -678,7 +695,7 @@ async function goToPortalMenu(page, label, { fallbackUrl = null, password = null
   const url = await readPortalMenuUrl(page, label);
   if (url) {
     console.log(`[PortalPet] portal menu "${label}" -> ${url}`);
-    await page.goto(url, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] goto failed:', e.message));
+    await gotoWithRetry(page, url, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] goto failed:', e.message));
     // (수정) 이 함수는 나이스/K-에듀파인/G-ONE 진입 경로가 전부 거쳐가는 공통 관문인데, 예전엔
     // 여기서 공지 팝업을 안 닫아서 openNiceSubMenu/openNiceApproval처럼 "자기 안에서 따로
     // 챙겨준" 함수만 안전하고, 그 외 경로(예: 하위 메뉴 없이 시스템에 바로 들어가는 경우)는
@@ -689,7 +706,7 @@ async function goToPortalMenu(page, label, { fallbackUrl = null, password = null
   console.log(`[PortalPet] portal menu "${label}" not found in .main-menu`);
   if (fallbackUrl) {
     console.log(`[PortalPet] falling back to direct URL (may require its own login):`, fallbackUrl);
-    await page.goto(fallbackUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] fallback goto failed:', e.message));
+    await gotoWithRetry(page, fallbackUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] fallback goto failed:', e.message));
     // (수정) password가 null이어도(자동 로그인 꺼짐/비밀번호 미저장) completeCertLoginIfNeeded를
     // 호출한다 - 그 함수가 이제 null이면 자동입력 대신 사용자가 직접 입력할 때까지 기다려준다.
     const loginResult = await completeCertLoginIfNeeded(page, password);
@@ -701,7 +718,7 @@ async function goToPortalMenu(page, label, { fallbackUrl = null, password = null
 
 async function ensureOnPortalHome(page, subdomain) {
   if (!page.url().includes('.eduptl.kr')) {
-    await page.goto(buildPortalUrl(subdomain), { waitUntil: 'domcontentloaded' });
+    await gotoWithRetry(page, buildPortalUrl(subdomain), { waitUntil: 'domcontentloaded' });
     await waitForPortalMenu(page);
     await closeAnyPopups(page);
   }
@@ -1370,7 +1387,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   } else {
     const portalUrl = buildPortalUrl(subdomain);
     console.log('[PortalPet] navigating to', portalUrl);
-    await page.goto(portalUrl, { waitUntil: 'domcontentloaded' });
+    await gotoWithRetry(page, portalUrl, { waitUntil: 'domcontentloaded' });
 
     const result = await completeCertLoginIfNeeded(page, password);
     console.log('[PortalPet] login result:', result);
