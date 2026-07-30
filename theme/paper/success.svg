@@ -1,0 +1,10 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- 오리지널 디자인(idle.svg와 동일 모티프): 서비스 연결 성공 - 눈웃음(^ ^)과 크게 웃는 입.
+       Clawd/Calico 등 타 프로젝트 아트워크 미사용. -->
+  <ellipse cx="50" cy="88" rx="26" ry="6" fill="#000" opacity="0.12"/>
+  <rect x="20" y="18" width="60" height="60" rx="16" fill="#4C8BF5"/>
+  <rect x="20" y="18" width="60" height="16" rx="8" fill="#3A6FD8"/>
+  <path d="M32 54 Q38 46 44 54" stroke="#1a1a1a" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+  <path d="M56 54 Q62 46 68 54" stroke="#1a1a1a" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+  <path d="M36 64 Q50 78 64 64" stroke="#fff" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,10 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- 오리지널 디자인(idle.svg와 동일 모티프): 오류 발생 - 눈은 X자, 입은 걱정스러운 물결선.
+       Clawd/Calico 등 타 프로젝트 아트워크 미사용. -->
+  <ellipse cx="50" cy="88" rx="26" ry="6" fill="#000" opacity="0.12"/>
+  <rect x="20" y="18" width="60" height="60" rx="16" fill="#4C8BF5"/>
+  <rect x="20" y="18" width="60" height="16" rx="8" fill="#3A6FD8"/>
+  <path d="M34 47 L42 55 M42 47 L34 55" stroke="#1a1a1a" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M58 47 L66 55 M66 47 L58 55" stroke="#1a1a1a" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M40 70 Q45 64 50 70 Q55 76 60 70" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>

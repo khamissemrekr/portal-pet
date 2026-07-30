@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+npm-debug.log*
+
+# Electron/Windows 배포 산출물(설치 파일 등) - 소스만 관리
+*.exe
+*.msi
+
+# 편집기/OS 잡파일
+.DS_Store
+Thumbs.db

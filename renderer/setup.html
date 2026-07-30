@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>PortalPet 설정</title>
+<style>
+  body { font-family: 'Malgun Gothic', sans-serif; background: #1e1e22; color: #eee; padding: 16px; }
+  label { display: block; margin-top: 12px; font-size: 13px; color: #ccc; }
+  input, select { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border-radius: 6px; border: 1px solid #555; background: #2a2a2e; color: #fff; }
+  button { margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #4C8BF5; color: #fff; font-weight: 600; cursor: pointer; }
+  button:hover { background: #3a6fd8; }
+  .note { font-size: 11px; color: #999; margin-top: 6px; }
+  .link-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }
+  .link-row .link-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .link-row .link-url { flex: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; }
+  .link-row button { width: auto; margin-top: 0; padding: 2px 8px; flex-shrink: 0; background: #5a3a3a; }
+  .link-row button:hover { background: #7a4a4a; }
+</style>
+</head>
+<body>
+  <h3>업무포털 설정</h3>
+
+  <!-- 여러 지역 선택 기능은 우선 숨김 - 지금은 경기도만 지원. select는 기존 로직(저장/로드) 유지를
+       위해 DOM에는 남겨두고 화면에서만 숨긴 뒤 항상 "경기"로 고정한다. -->
+  <div id="regionPickerWrap" style="display:none">
+    <label>지역
+      <select id="region">
+        <option value="서울">서울</option>
+        <option value="경기" selected>경기</option>
+        <option value="경남">경남</option>
+        <option value="부산">부산</option>
+        <option value="대구">대구</option>
+        <option value="대전">대전</option>
+        <option value="경북">경북</option>
+        <option value="세종">세종</option>
+        <option value="울산">울산</option>
+        <option value="인천">인천</option>
+        <option value="광주">광주</option>
+        <option value="전남">전남</option>
+        <option value="전북">전북</option>
+        <option value="충남">충남</option>
+        <option value="충북">충북</option>
+        <option value="강원">강원</option>
+        <option value="제주">제주</option>
+        <option value="__custom__">직접 입력…</option>
+      </select>
+    </label>
+
+    <label id="customWrap" style="display:none">서브도메인 (예: goe)
+      <input id="customSubdomain" placeholder="goe" />
+    </label>
+  </div>
+  <div class="note" style="margin-top:12px;">지역: <b style="color:#fff;">경기</b> (다른 지역 선택 기능은 현재 숨겨져 있습니다)</div>
+
+  <label>인증서 비밀번호
+    <div style="display:flex; gap:6px;">
+      <input id="password" type="password" style="flex:1;" />
+      <button id="deletePasswordBtn" type="button" style="width:auto; margin-top:0; padding:0 10px; flex-shrink:0; background:#5a3a3a;">삭제</button>
+    </div>
+  </label>
+  <div class="note">이 PC의 현재 Windows 계정에서만 복호화되도록 암호화되어 저장됩니다(Electron safeStorage).</div>
+
+  <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+    <input id="autoLogin" type="checkbox" checked style="width:auto; margin-top:0;" />
+    <span>자동 로그인 (끄면 인증서 창에서 비밀번호를 직접 입력해야 합니다)</span>
+  </label>
+
+  <label>브라우저 프로필
+    <select id="browserProfile">
+      <option value="__dedicated__">PortalPet 전용 프로필 (추천)</option>
+    </select>
+  </label>
+  <div class="note">
+    기존에 쓰던 크롬 프로필을 선택하면 로그인·보안프로그램 설정이 이미 돼 있어 첫 화면부터 매끄럽습니다.
+    단, <b>그 프로필로 크롬이 이미 켜져 있으면</b> 먼저 크롬을 완전히 종료해야 동작합니다.
+  </div>
+
+  <label style="margin-top:16px;">자주 가는 사이트</label>
+  <div id="customLinksList"></div>
+  <div style="display:flex; gap:6px; margin-top:6px;">
+    <input id="newLinkLabel" placeholder="메뉴명 (예: 학교 홈페이지)" style="flex:1; margin-top:0;" />
+    <input id="newLinkUrl" placeholder="주소 (예: school.go.kr)" style="flex:1.4; margin-top:0;" />
+    <button id="addLinkBtn" type="button" style="width:auto; margin-top:0; padding:0 12px; flex-shrink:0;">추가</button>
+  </div>
+  <div class="note">메뉴에 버튼으로 추가되며, 클릭하면 기본 브라우저로 열립니다.</div>
+
+  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+    <input id="autoLaunchMessenger" type="checkbox" style="width:auto; margin-top:0;" />
+    <span>프로그램 실행 시 메신저 자동 실행</span>
+  </label>
+  <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+    <input id="autoLaunchSchedule" type="checkbox" style="width:auto; margin-top:0;" />
+    <span>프로그램 실행 시 일정 자동 실행</span>
+  </label>
+  <div class="note">
+    메신저만 체크하면 메신저만, 일정만 체크하면 일정만 실행됩니다. 둘 다 체크하면 메신저 로그인
+    후 이어서 일정 페이지를 띄워 둡니다.
+  </div>
+
+  <button id="saveBtn">저장</button>
+
+  <script>
+    const regionSelect = document.getElementById('region');
+    const customWrap = document.getElementById('customWrap');
+    const profileSelect = document.getElementById('browserProfile');
+
+    regionSelect.addEventListener('change', () => {
+      customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
+    });
+
+    let hasExistingPassword = false;
+    let customLinks = [];
+    const customLinksList = document.getElementById('customLinksList');
+
+    function renderCustomLinksList() {
+      customLinksList.innerHTML = '';
+      customLinks.forEach((link, idx) => {
+        const row = document.createElement('div');
+        row.className = 'link-row';
+        const label = document.createElement('span');
+        label.className = 'link-label';
+        label.textContent = link.label;
+        const url = document.createElement('span');
+        url.className = 'link-url';
+        url.textContent = link.url;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = '삭제';
+        removeBtn.addEventListener('click', () => {
+          customLinks.splice(idx, 1);
+          renderCustomLinksList();
+        });
+        row.appendChild(label);
+        row.appendChild(url);
+        row.appendChild(removeBtn);
+        customLinksList.appendChild(row);
+      });
+    }
+
+    document.getElementById('addLinkBtn').addEventListener('click', () => {
+      const labelInput = document.getElementById('newLinkLabel');
+      const urlInput = document.getElementById('newLinkUrl');
+      const label = labelInput.value.trim();
+      const url = urlInput.value.trim();
+      if (!label || !url) {
+        alert('메뉴명과 주소를 모두 입력하세요.');
+        return;
+      }
+      customLinks.push({ label, url });
+      labelInput.value = '';
+      urlInput.value = '';
+      labelInput.focus();
+      renderCustomLinksList();
+    });
+
+    async function init() {
+      const [profiles, config] = await Promise.all([
+        window.portalPet.listChromeProfiles(),
+        window.portalPet.getConfig(),
+      ]);
+
+      for (const p of profiles) {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify({ root: p.root, folder: p.folder });
+        opt.textContent = `${p.name} (${p.folder})`;
+        profileSelect.appendChild(opt);
+      }
+
+      // 지역 선택 기능은 우선 숨김 - 저장된 값과 무관하게 항상 "경기"로 고정한다.
+      regionSelect.value = '경기';
+      customWrap.style.display = 'none';
+      if (config?.browserProfile) {
+        const wanted = JSON.stringify({ root: config.browserProfile.root, folder: config.browserProfile.folder });
+        const match = [...profileSelect.options].find((o) => o.value === wanted);
+        if (match) profileSelect.value = wanted;
+      }
+      hasExistingPassword = !!config?.encryptedPasswordBase64;
+      if (hasExistingPassword) {
+        document.getElementById('password').placeholder = '변경하려면 입력 (그대로 두면 기존 비밀번호 유지)';
+      }
+      document.getElementById('autoLogin').checked = config?.autoLogin !== false;
+      document.getElementById('autoLaunchMessenger').checked = !!config?.autoLaunchMessenger;
+      document.getElementById('autoLaunchSchedule').checked = !!config?.autoLaunchSchedule;
+      customLinks = Array.isArray(config?.customLinks) ? config.customLinks.map((l) => ({ ...l })) : [];
+      renderCustomLinksList();
+    }
+    init();
+
+    document.getElementById('deletePasswordBtn').addEventListener('click', async () => {
+      if (!confirm('저장된 인증서 비밀번호를 삭제할까요? 자동 로그인 시 매번 직접 입력해야 합니다.')) return;
+      await window.portalPet.deletePassword();
+      hasExistingPassword = false;
+      const passwordInput = document.getElementById('password');
+      passwordInput.value = '';
+      passwordInput.placeholder = '';
+      alert('저장된 비밀번호를 삭제했습니다.');
+    });
+
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      const region = regionSelect.value === '__custom__' ? '' : regionSelect.value;
+      const subdomain = regionSelect.value === '__custom__' ? document.getElementById('customSubdomain').value.trim() : '';
+      const password = document.getElementById('password').value;
+      const autoLogin = document.getElementById('autoLogin').checked;
+      // 자동 로그인을 껐으면 비밀번호 없이도 저장 가능(인증서 창에서 직접 입력할 것이므로).
+      if ((autoLogin && !password && !hasExistingPassword) || (!region && !subdomain)) {
+        alert(autoLogin ? '지역과 비밀번호를 입력하세요 (자동 로그인을 끄면 비밀번호 없이도 저장할 수 있습니다).' : '지역을 입력하세요.');
+        return;
+      }
+      const browserProfile = profileSelect.value === '__dedicated__' ? null : JSON.parse(profileSelect.value);
+      const autoLaunchMessenger = document.getElementById('autoLaunchMessenger').checked;
+      const autoLaunchSchedule = document.getElementById('autoLaunchSchedule').checked;
+      await window.portalPet.saveSetup({ region, subdomain, password, browserProfile, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin });
+    });
+  </script>
+</body>
+</html>

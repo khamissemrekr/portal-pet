@@ -1,0 +1,20 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- 오리지널 디자인(idle.svg와 동일 모티프): 로그인/메뉴 이동 자동화 진행 중 - 눈은 동그랗게
+       뜨고 아래에 작은 점 3개로 "생각 중"을 표현. Clawd/Calico 등 타 프로젝트 아트워크 미사용. -->
+  <ellipse cx="50" cy="88" rx="26" ry="6" fill="#000" opacity="0.12"/>
+  <rect x="20" y="18" width="60" height="60" rx="16" fill="#4C8BF5"/>
+  <rect x="20" y="18" width="60" height="16" rx="8" fill="#3A6FD8"/>
+  <circle cx="38" cy="50" r="5" fill="#fff"/>
+  <circle cx="62" cy="50" r="5" fill="#fff"/>
+  <circle cx="38" cy="50" r="2.4" fill="#1a1a1a"/>
+  <circle cx="62" cy="50" r="2.4" fill="#1a1a1a"/>
+  <circle cx="42" cy="68" r="3" fill="#fff" opacity="0.9">
+    <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" begin="0s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="50" cy="68" r="3" fill="#fff" opacity="0.9">
+    <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" begin="0.2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="58" cy="68" r="3" fill="#fff" opacity="0.9">
+    <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" begin="0.4s" repeatCount="indefinite"/>
+  </circle>
+</svg>

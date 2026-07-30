@@ -1,0 +1,40 @@
+{
+  "name": "portal-pet",
+  "version": "0.1.0",
+  "description": "업무포털 원클릭 접속 데스크톱 펫 (clawd-on-desk의 미니모드/트레이 UX를 참고해 처음부터 새로 구현)",
+  "author": "PortalPet",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.portalpet.app",
+    "productName": "PortalPet",
+    "asar": false,
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "theme/**/*",
+      "engine/**/*"
+    ]
+  },
+  "dependencies": {
+    "playwright": "^1.45.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

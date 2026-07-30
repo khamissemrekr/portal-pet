@@ -1,0 +1,76 @@
+html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: 'Malgun Gothic', sans-serif; }
+
+#root { display: flex; align-items: flex-start; height: 100%; }
+
+#pet {
+  width: 96px; height: 96px;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  -webkit-app-region: no-drag; /* CSS drag는 클릭 토글과 충돌해서 안 씀 - renderer.js에서 mousedown/mousemove/mouseup으로 직접 드래그 구현 */
+  cursor: pointer;
+}
+#pet img { width: 64px; height: 64px; pointer-events: none; -webkit-user-drag: none; }
+
+#status-dot {
+  position: absolute; bottom: 10px; right: 18px;
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid white;
+}
+#status-dot.idle { background: #9aa0a6; }
+#status-dot.connected { background: #34a853; }
+#status-dot.error { background: #ea4335; }
+
+#panel {
+  width: 300px; height: 100%;
+  background: rgba(30, 30, 34, 0.92);
+  border-radius: 12px;
+  color: #f1f1f1;
+  padding: 12px;
+  box-sizing: border-box;
+  -webkit-app-region: no-drag;
+}
+#panel.hidden { display: none; }
+
+.panel-header {
+  display: flex; justify-content: space-between; align-items: center;
+  font-weight: 600; margin-bottom: 8px;
+}
+.panel-header select { background: #444; color: #fff; border: none; border-radius: 6px; padding: 2px 4px; }
+
+#services { display: flex; gap: 6px; align-items: flex-start; }
+.service-col { flex: 1 1 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.service-btn {
+  background: #3a3a40; color: #fff; border: none; border-radius: 8px;
+  padding: 8px 2px; font-size: 11.5px; cursor: pointer; line-height: 1.3;
+}
+.service-btn:hover { background: #4b4b52; }
+.service-btn:active { background: #56565e; }
+.service-btn:disabled { opacity: 0.5; cursor: default; }
+.service-btn.header {
+  background: #4C8BF5; font-weight: 700; font-size: 12.5px; padding: 10px 2px;
+}
+.service-btn.header:hover { background: #3a6fd8; }
+
+#custom-links-wrap { margin-top: 8px; }
+#custom-links-wrap.hidden { display: none; }
+.section-label { font-size: 11px; color: #a0a0a6; margin-bottom: 4px; }
+#custom-links {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 90px; overflow-y: auto;
+}
+.custom-link-btn {
+  background: #3a3a40; color: #fff; border: none; border-radius: 8px;
+  padding: 6px 8px; font-size: 11.5px; cursor: pointer; text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.custom-link-btn:hover { background: #4b4b52; }
+.custom-link-btn:active { background: #56565e; }
+
+#error-box {
+  margin-top: 8px; padding: 8px; border-radius: 8px;
+  background: rgba(234, 67, 53, 0.15); border: 1px solid rgba(234, 67, 53, 0.5);
+  color: #ffb4ac; font-size: 11.5px; line-height: 1.4; white-space: pre-wrap;
+}
+#error-box.hidden { display: none; }
+
+.panel-footer { margin-top: 10px; font-size: 11px; color: #a0a0a6; }
