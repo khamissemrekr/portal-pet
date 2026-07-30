@@ -285,15 +285,40 @@ async function getPage(context) {
   return sharedPage;
 }
 
-/** 지금 sharedPage가 이미(이전 클릭으로) 뭔가 실행된 상태인지 - blank면 "아직 실행 전"으로 본다. */
-async function currentSharedPageHasContent() {
-  if (!sharedPage || sharedPage.isClosed()) return false;
+/**
+ * 지금 sharedPage가 나이스/K-에듀파인/G-ONE/포털 홈 중 어디에 가 있는지 판별한다. 판별이 안 되는
+ * 화면(사용자가 직접 다른 사이트로 이동했거나 판별 실패)이면 null - 이 경우 호출 쪽에서 안전하게
+ * "다른 시스템"으로 취급한다(새 탭을 여는 쪽으로).
+ */
+async function currentTabSystemGroup(page, subdomain) {
+  if (await isOnSystem(page, 'nice', subdomain)) return 'nice';
+  if (await isOnSystem(page, 'edufine', subdomain)) return 'edufine';
+  if (await isOnSystem(page, 'gone', subdomain)) return 'gone';
   try {
-    const url = sharedPage.url();
-    return !!url && url !== 'about:blank';
-  } catch {
-    return false;
-  }
+    if (currentHostname(page).endsWith('.eduptl.kr')) return 'portal_home';
+  } catch { /* ignore */ }
+  return null;
+}
+
+/**
+ * (수정) 처음엔 "탭에 이미 뭔가 열려 있으면 무조건 새 탭"이었는데, 그러면 나이스 안에서 복무
+ * 신청 -> 출장 신청처럼 "같은 시스템 안에서" 메뉴만 바꿀 때도 매번 새 탭이 열려서, 매번 포털
+ * 홈부터 다시 로그인/이동하느라 느려지고 공지 팝업 닫기 타이밍도 꼬였다(사용자 재현 확인: 엣지
+ * 에서 복무 신청 시 공지사항이 안 닫힘 - 원인은 매번 새 탭이 열려서 팝업이 뜨는 타이밍과
+ * closeAnyPopups 호출 시점이 어긋난 것). 그래서 "업무포털 메인/나이스/K-에듀파인/G-ONE 이 네
+ * 그룹 사이를 넘나들 때만" 새 탭을 열고, 같은 그룹 안에서의 메뉴 이동은 기존 탭을 그대로
+ * 재사용하도록 바꿨다(사용자 요청).
+ */
+async function shouldOpenNewTabFor(serviceKey, subdomain) {
+  if (!sharedPage || sharedPage.isClosed()) return false; // 첫 실행 - 그대로 사용
+  let url;
+  try { url = sharedPage.url(); } catch { return false; }
+  if (!url || url === 'about:blank') return false; // 아직 아무 것도 안 띄운 탭
+
+  const targetGroup = TAB_GROUP[serviceKey] || null;
+  const currentGroup = await currentTabSystemGroup(sharedPage, subdomain);
+  if (currentGroup === null || targetGroup === null) return true; // 판별 안 되면 안전하게 새 탭
+  return currentGroup !== targetGroup;
 }
 
 /**
@@ -1422,6 +1447,10 @@ const SERVICE_SYSTEM = {
   gone: 'gone', gone_msg: 'gone', gone_ai: 'gone', gone_schedule: 'gone',
 };
 
+// 탭 재사용 여부 판단 전용 - "업무포털 메인"도 하나의 그룹으로 취급해서, 나이스/K-에듀파인/
+// G-ONE과 서로 넘나들 때만 새 탭을 연다(사용자 요청: 같은 시스템 안에서는 새 탭 대신 현재 탭).
+const TAB_GROUP = { ...SERVICE_SYSTEM, portal_home: 'portal_home' };
+
 /**
  * PortalPet에서 서비스 버튼 클릭 시 호출되는 진입점.
  */
@@ -1431,7 +1460,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // (수정) 이미 다른 화면이 떠서 사용 중이면(사용자가 방금 전 메뉴로 연 화면이 아직 열려 있으면)
   // 그 화면을 그대로 두고 이번 클릭은 새 탭에서 실행한다 - 예전엔 항상 같은 탭을 재사용해서
   // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
-  const openNewTab = await currentSharedPageHasContent();
+  const openNewTab = await shouldOpenNewTabFor(serviceKey, subdomain);
   const page = openNewTab ? await openFreshTab(context) : await getPage(context);
   await closeExtraPages(context, page); // 이전 클릭이 남겨둔 신청서 작성 창 등 정리 (다른 탭/창)
   // (수정) 근무상황신청/출장신청 창은 새 탭이 아니라 같은 페이지 안의 오버레이 다이얼로그로
