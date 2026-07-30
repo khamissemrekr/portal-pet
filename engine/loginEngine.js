@@ -34,8 +34,17 @@ async function gotoWithRetry(page, url, opts = {}) {
 }
 
 let sharedContext = null;
-let sharedPage = null; // 클릭마다 새 탭을 만들지 않고 하나의 탭을 계속 재사용한다.
+// (수정) 예전엔 클릭마다 무조건 같은 탭 하나만 재사용했다 - 그런데 이미 한 화면(예: 기안문
+// 작성 중)이 떠 있는 상태에서 다른 메뉴(예: 품의 작성)를 누르면 그 화면을 밀어내고 사라지게
+// 만들어, 작업 중이던 내용을 잃을 수 있었다(사용자 요청으로 확인). 그래서 지금은 "현재 탭에
+// 이미 뭔가 열려 있으면(=이미 실행 중이면) 새 탭을 연다"로 바꿨다 - sharedPage는 여전히
+// "다음 클릭이 우선 사용할 탭"을 가리키는 포인터로 쓰되, 실행 중이면 매번 새로 갈아끼운다.
+let sharedPage = null;
 let lastBrowserProfileKey = null; // 프로필을 바꾸면 기존 컨텍스트를 버리고 새로 띄워야 한다.
+// launchService/checkEdufineApprovalCount가 각자 열어둔 "정상적인" 서비스 탭들의 집합.
+// closeExtraPages는 이 목록에 있는 탭은 leftover 팝업으로 오인해 닫지 않는다 - 그래야 사용자가
+// 다른 메뉴로 새로 연 탭이 다음 클릭 때 자동으로 닫혀버리는 일이 없다.
+const mainServiceTabs = new Set();
 
 /**
  * 새 프로필 특유의 "비밀번호를 저장하시겠습니까?" 팝업을 프로필 설정 파일에서 직접 꺼둔다.
@@ -236,24 +245,58 @@ async function getContext(browserProfile, subdomain) {
     console.log('[PortalPet] browser context closed by user; will relaunch next time.');
     sharedContext = null;
     sharedPage = null;
+    mainServiceTabs.clear();
   });
   return sharedContext;
 }
 
 /**
- * 탭도 매번 새로 열지 않고 하나를 계속 재사용한다.
+ * 아직 아무 것도 실행한 적 없을 때(또는 이전 탭이 닫혔을 때)만 탭을 재사용한다.
  * launchPersistentContext는 시작할 때 빈 탭을 하나 기본으로 만들어두므로, 우리가 또 새 탭을
  * 만들면 about:blank 탭이 하나 남는다 - 그 기존 탭을 먼저 재사용한다.
  */
 async function getPage(context) {
-  if (sharedPage && !sharedPage.isClosed()) return sharedPage;
+  if (sharedPage && !sharedPage.isClosed()) {
+    mainServiceTabs.add(sharedPage);
+    return sharedPage;
+  }
   const existing = context.pages().find((p) => !p.isClosed());
   const page = existing || (await context.newPage());
   sharedPage = page;
+  mainServiceTabs.add(page);
   page.on('close', () => {
+    mainServiceTabs.delete(page);
     if (sharedPage === page) sharedPage = null; // 그 사이 새 탭이 만들어졌으면 그건 건드리지 않음
   });
   return sharedPage;
+}
+
+/** 지금 sharedPage가 이미(이전 클릭으로) 뭔가 실행된 상태인지 - blank면 "아직 실행 전"으로 본다. */
+async function currentSharedPageHasContent() {
+  if (!sharedPage || sharedPage.isClosed()) return false;
+  try {
+    const url = sharedPage.url();
+    return !!url && url !== 'about:blank';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 이미 다른 화면이 열려서 사용 중일 때 새 메뉴를 누르면, 그 화면을 밀어내지 않고 새 탭을 열어
+ * 그 안에서 실행한다(사용자 요청: "이미 실행되어 있는 중에는 새로운 탭으로 열도록"). 이전 탭은
+ * 그대로 남겨두고(닫지 않음) 건드리지 않는다 - 이 새 탭이 다음 클릭까지 sharedPage가 된다.
+ */
+async function openFreshTab(context) {
+  const page = await context.newPage();
+  sharedPage = page;
+  mainServiceTabs.add(page);
+  page.on('close', () => {
+    mainServiceTabs.delete(page);
+    if (sharedPage === page) sharedPage = null;
+  });
+  console.log('[PortalPet] 기존 탭이 이미 사용 중 - 화면을 유지한 채 새 탭을 열어 실행');
+  return page;
 }
 
 /**
@@ -421,12 +464,15 @@ async function closeNiceRequestPopup(page) {
  */
 async function closeExtraPages(context, keepPage) {
   for (const p of context.pages()) {
-    if (p !== keepPage && !p.isClosed()) {
-      console.log('[PortalPet] closing leftover page:', p.url());
-      await closeNiceRequestPopup(p).catch(() => {});
-      if (!p.isClosed()) {
-        await p.close().catch((e) => console.log('[PortalPet] closing leftover page failed (non-fatal):', e.message));
-      }
+    if (p === keepPage || p.isClosed()) continue;
+    // (수정) 이제 사용자가 다른 메뉴를 눌러 의도적으로 새 탭을 열어둘 수 있다(openFreshTab) -
+    // mainServiceTabs에 있는 탭은 leftover 팝업이 아니라 "다른 메뉴가 열어둔 정상 화면"이므로
+    // 자동으로 닫지 않는다. 여기서 정리 대상은 그 목록에 없는, 진짜 leftover 팝업/서브윈도우뿐이다.
+    if (mainServiceTabs.has(p)) continue;
+    console.log('[PortalPet] closing leftover page:', p.url());
+    await closeNiceRequestPopup(p).catch(() => {});
+    if (!p.isClosed()) {
+      await p.close().catch((e) => console.log('[PortalPet] closing leftover page failed (non-fatal):', e.message));
     }
   }
 }
@@ -1296,7 +1342,12 @@ async function clickFirstMatchFollowingPopup(context, page, candidates, { timeou
       }
       console.log(`[PortalPet] "${text}" click opened a new tab - switching to it and closing the old tab`);
       if (sharedPage === page) sharedPage = popup;
-      popup.on('close', () => { if (sharedPage === popup) sharedPage = null; });
+      mainServiceTabs.add(popup);
+      mainServiceTabs.delete(page);
+      popup.on('close', () => {
+        mainServiceTabs.delete(popup);
+        if (sharedPage === popup) sharedPage = null;
+      });
       await page.close().catch((e) => console.log('[PortalPet] closing old tab failed (non-fatal):', e.message));
       return { page: popup, found: true };
     }
@@ -1363,7 +1414,11 @@ const SERVICE_SYSTEM = {
 async function launchService(serviceKey, subdomain, password, browserProfile = null) {
   console.log(`[PortalPet] launchService(${serviceKey}, ${subdomain})`);
   const context = await getContext(browserProfile, subdomain);
-  const page = await getPage(context);
+  // (수정) 이미 다른 화면이 떠서 사용 중이면(사용자가 방금 전 메뉴로 연 화면이 아직 열려 있으면)
+  // 그 화면을 그대로 두고 이번 클릭은 새 탭에서 실행한다 - 예전엔 항상 같은 탭을 재사용해서
+  // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
+  const openNewTab = await currentSharedPageHasContent();
+  const page = openNewTab ? await openFreshTab(context) : await getPage(context);
   await closeExtraPages(context, page); // 이전 클릭이 남겨둔 신청서 작성 창 등 정리 (다른 탭/창)
   // (수정) 근무상황신청/출장신청 창은 새 탭이 아니라 같은 페이지 안의 오버레이 다이얼로그로
   // 뜬다는 게 실측으로 확인됨 - closeExtraPages는 "다른" 페이지만 검사하므로 이 경우를
