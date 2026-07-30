@@ -1479,8 +1479,14 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   let targetPage = page;
   switch (serviceKey) {
     case 'portal_home':
-      // 위의 공통 진입 절차(포털 홈 이동 + 로그인 + closeAnyPopups)만으로 이미 목적지에 도착한
-      // 상태라 추가로 할 일이 없다 - 그대로 머무른다.
+      // (수정) 포털 홈의 공지 팝업(예: "나이스시스템 점검 안내")은 메뉴(a.menuBtn)보다 늦게
+      // 비동기로 뜨는 경우가 있다(실측 확인: 스크린샷 - 위 ensureLoggedInOnPortalHome의
+      // closeAnyPopups가 지나간 뒤에야 나타남). 다른 메뉴(나이스/K-에듀파인/G-ONE)는 포털 홈에
+      // 도착하자마자 바로 다른 화면으로 넘어가버려서 이 팝업이 뜨기 전에 화면이 바뀌지만,
+      // "업무포털 메인"은 그 자리에 계속 머무르기 때문에 뒤늦게 뜨는 팝업이 그대로 남는다 -
+      // 잠깐 더 기다렸다가 한 번 더 닫기를 시도한다.
+      await targetPage.waitForTimeout(1500);
+      await closeAnyPopups(targetPage);
       console.log('[PortalPet] 업무포털 메인 화면에 머무름');
       targetPage = page;
       break;
