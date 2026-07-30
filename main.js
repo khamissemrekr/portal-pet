@@ -9,7 +9,7 @@ const os = require('node:os');
 const credentialStore = require('./engine/credentialStore');
 const loginEngine = require('./engine/loginEngine');
 const { REGIONS } = require('./engine/regionMap');
-const { listChromeProfiles } = require('./engine/chromeProfiles');
+const { listBrowserProfiles } = require('./engine/browserProfiles');
 const { startDialogSuppressor, stopDialogSuppressor } = require('./engine/dialogSuppressor');
 
 // ===== 설정 =====
@@ -178,7 +178,7 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
     : null;
 
   try {
-    const result = await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null);
+    const result = await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
     return result;
   } catch (err) {
     console.error('[PortalPet] launch-service failed:', err);
@@ -202,7 +202,7 @@ ipcMain.handle('check-edufine-approvals', async () => {
     : null;
 
   try {
-    const result = await loginEngine.checkEdufineApprovalCount(subdomain, password, config.browserProfile || null);
+    const result = await loginEngine.checkEdufineApprovalCount(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
     return result;
   } catch (err) {
     console.error('[PortalPet] check-edufine-approvals failed:', err);
@@ -210,7 +210,8 @@ ipcMain.handle('check-edufine-approvals', async () => {
   }
 });
 
-ipcMain.handle('list-chrome-profiles', () => listChromeProfiles());
+// channel: 'chrome' | 'msedge' - 설정 창에서 브라우저를 바꾸면 그 브라우저의 프로필 목록을 다시 읽어온다.
+ipcMain.handle('list-browser-profiles', (_evt, channel) => listBrowserProfiles(channel || 'chrome'));
 ipcMain.handle('get-config', () => credentialStore.loadConfig());
 
 ipcMain.handle('toggle-panel', () => togglePanel());
@@ -249,7 +250,7 @@ function sanitizeCustomLinks(customLinks) {
     .map((l) => ({ label: l.label, url: /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}` }));
 }
 
-ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfile, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin }) => {
+ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin }) => {
   const previous = credentialStore.loadConfig();
   // 비밀번호 칸을 비워두고 저장하면(지역/프로필만 바꾸는 경우) 기존 저장값을 그대로 둔다.
   const encryptedPasswordBase64 = password
@@ -261,6 +262,7 @@ ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfil
     subdomain: subdomain || REGIONS[region] || '',
     encryptedPasswordBase64,
     browserProfile: browserProfile || null, // null이면 PortalPet 전용 프로필 사용
+    browserChannel: browserChannel === 'msedge' ? 'msedge' : 'chrome', // 어떤 설치된 브라우저(크롬/엣지)를 쓸지
     autoLaunchMessenger: !!autoLaunchMessenger,
     autoLaunchSchedule: !!autoLaunchSchedule,
     customLinks: sanitizeCustomLinks(customLinks),
@@ -331,7 +333,7 @@ async function runStartupAutoLaunch() {
   for (const serviceKey of steps) {
     try {
       console.log(`[PortalPet] 시작 시 자동 실행: ${serviceKey}`);
-      await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null);
+      await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
     } catch (err) {
       console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);
     }

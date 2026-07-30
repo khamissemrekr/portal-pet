@@ -14,7 +14,14 @@ const path = require('node:path');
 const { app } = require('electron');
 const { buildPortalUrl, buildNiceUrl, buildEdufineUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
 
-const USER_DATA_DIR = () => path.join(app.getPath('userData'), 'PortalPet', 'browser-profile');
+// (수정) 엣지 지원 추가 - "PortalPet 전용 프로필"은 어떤 브라우저(channel)를 쓰느냐에 따라
+// 폴더를 분리한다. 크롬은 기존 사용자들의 이미 마쳐둔 보안프로그램/인증서 설정이 담긴 폴더명을
+// 그대로 유지해 재설정을 요구하지 않고, 엣지만 새 폴더를 쓴다(크로미움이라도 서로 다른 제품이라
+// 같은 user-data-dir을 공유하면 문제가 생길 수 있어 분리).
+const USER_DATA_DIR = (browserChannel = 'chrome') => path.join(
+  app.getPath('userData'), 'PortalPet',
+  browserChannel === 'chrome' ? 'browser-profile' : `browser-profile-${browserChannel}`
+);
 
 /**
  * launchPersistentContext 직후 첫 페이지 이동은 가끔 net::ERR_ABORTED로 실패한다(실측 확인:
@@ -51,8 +58,8 @@ const mainServiceTabs = new Set();
  * Playwright/Chrome에는 이걸 끄는 launch 옵션이 따로 없어서 Preferences 파일을 직접 건드려야 한다.
  * launchPersistentContext가 처음 만드는 'Default' 프로필 폴더에 미리 심어둔다.
  */
-function disablePasswordManagerPrompt() {
-  const prefsPath = path.join(USER_DATA_DIR(), 'Default', 'Preferences');
+function disablePasswordManagerPrompt(browserChannel = 'chrome') {
+  const prefsPath = path.join(USER_DATA_DIR(browserChannel), 'Default', 'Preferences');
   try {
     fs.mkdirSync(path.dirname(prefsPath), { recursive: true });
     let prefs = {};
@@ -167,35 +174,39 @@ function buildGoneMessengerBridgeOrigin(subdomain) {
 
 /**
  * browserProfile이 없으면 PortalPet 전용 프로필(기본, 안전한 선택)을 새로 만든다.
- * browserProfile = { root, folder }가 있으면 그 크롬 프로필(사용자가 이미 쓰던 것)을 그대로 켠다 -
- * 단, 그 프로필로 크롬이 이미 켜져 있으면 크롬이 폴더를 잠그고 있어서 실행에 실패한다
- * (Chrome 프로필은 동시에 두 프로세스가 못 쓴다). 이 경우 사용자에게 크롬을 먼저 끄라고 안내해야 한다.
+ * browserProfile = { root, folder }가 있으면 그 브라우저 프로필(사용자가 이미 쓰던 것)을 그대로 켠다 -
+ * 단, 그 프로필로 해당 브라우저가 이미 켜져 있으면 브라우저가 폴더를 잠그고 있어서 실행에 실패한다
+ * (크로미움 프로필은 동시에 두 프로세스가 못 쓴다). 이 경우 사용자에게 그 브라우저를 먼저 끄라고 안내해야 한다.
+ * browserChannel('chrome' | 'msedge')로 실제 실행할 설치된 브라우저를 고른다 - Playwright가
+ * 둘 다 channel 옵션으로 그대로 지원한다(번들 Chromium이 아니라 설치된 실제 브라우저를 씀).
  */
-async function getContext(browserProfile, subdomain) {
-  const profileKey = browserProfile ? `${browserProfile.root}::${browserProfile.folder}` : 'portalpet-dedicated';
+async function getContext(browserProfile, subdomain, browserChannel = 'chrome') {
+  const profileKey = browserProfile
+    ? `${browserProfile.root}::${browserProfile.folder}`
+    : `portalpet-dedicated::${browserChannel}`;
   if (sharedContext && lastBrowserProfileKey === profileKey) return sharedContext;
 
   if (sharedContext && lastBrowserProfileKey !== profileKey) {
-    console.log('[PortalPet] browser profile selection changed - closing previous browser...');
+    console.log('[PortalPet] browser profile/channel selection changed - closing previous browser...');
     await sharedContext.close().catch(() => {});
     sharedContext = null;
     sharedPage = null;
   }
 
-  console.log('[PortalPet] launching browser context... profile:', profileKey);
+  console.log('[PortalPet] launching browser context... profile:', profileKey, 'channel:', browserChannel);
 
-  const userDataDir = browserProfile ? browserProfile.root : USER_DATA_DIR();
+  const userDataDir = browserProfile ? browserProfile.root : USER_DATA_DIR(browserChannel);
   const args = [
     '--no-first-run',
     '--no-default-browser-check',
-    // "Chrome이 제대로 종료되지 않았습니다" 복원 경고창/말풍선을 아예 안 띄운다.
+    // "브라우저가 제대로 종료되지 않았습니다" 복원 경고창/말풍선을 아예 안 띄운다.
     // 실제 사용자 프로필이든 전용 프로필이든 파일을 건드리지 않고 안전하게 적용 가능.
     '--disable-session-crashed-bubble',
   ];
   if (browserProfile) {
     args.push(`--profile-directory=${browserProfile.folder}`);
   } else {
-    disablePasswordManagerPrompt(); // 전용 프로필일 때만 - 실제 프로필의 설정은 건드리지 않는다
+    disablePasswordManagerPrompt(browserChannel); // 전용 프로필일 때만 - 실제 프로필의 설정은 건드리지 않는다
   }
 
   // K-에듀파인 WXSClient / G-ONE Brity 메신저 확인창을 미리 허용해둔다. Preferences는
@@ -221,21 +232,24 @@ async function getContext(browserProfile, subdomain) {
   try {
     sharedContext = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
-      channel: 'chrome', // 설치된 크롬을 사용. 없으면 Playwright 번들 Chromium으로 폴백 필요(TODO).
+      channel: browserChannel, // 'chrome' | 'msedge' - 설치된 실제 브라우저를 사용. 없으면 Playwright 번들 Chromium으로 폴백 필요(TODO).
       viewport: null,
       args,
-      // Playwright가 chrome 채널에 기본으로 붙이는 --no-sandbox 때문에 "지원되지 않는 명령줄
-      // 플래그" 경고 배너가 떴다. 실제로 제거해도 되는 기본 인자라 무시 목록에 넣는다.
+      // Playwright가 chrome/msedge 채널에 기본으로 붙이는 --no-sandbox 때문에 "지원되지 않는
+      // 명령줄 플래그" 경고 배너가 떴다. 실제로 제거해도 되는 기본 인자라 무시 목록에 넣는다.
       ignoreDefaultArgs: ['--no-sandbox'],
     });
   } catch (err) {
+    const browserLabel = browserChannel === 'msedge' ? '엣지' : '크롬';
     if (browserProfile) {
       throw new Error(
-        `선택한 크롬 프로필("${browserProfile.folder}")을 열 수 없습니다. 그 프로필로 크롬이 이미 실행 중이면 ` +
-        `먼저 크롬을 완전히 종료한 뒤 다시 시도해 주세요. (원인: ${err.message})`
+        `선택한 ${browserLabel} 프로필("${browserProfile.folder}")을 열 수 없습니다. 그 프로필로 ${browserLabel}가 이미 실행 중이면 ` +
+        `먼저 ${browserLabel}를 완전히 종료한 뒤 다시 시도해 주세요. (원인: ${err.message})`
       );
     }
-    throw err;
+    throw new Error(
+      `${browserLabel} 브라우저를 실행할 수 없습니다. 이 PC에 ${browserLabel}가 설치돼 있는지 확인해 주세요. (원인: ${err.message})`
+    );
   }
 
   lastBrowserProfileKey = profileKey;
@@ -1411,9 +1425,9 @@ const SERVICE_SYSTEM = {
 /**
  * PortalPet에서 서비스 버튼 클릭 시 호출되는 진입점.
  */
-async function launchService(serviceKey, subdomain, password, browserProfile = null) {
-  console.log(`[PortalPet] launchService(${serviceKey}, ${subdomain})`);
-  const context = await getContext(browserProfile, subdomain);
+async function launchService(serviceKey, subdomain, password, browserProfile = null, browserChannel = 'chrome') {
+  console.log(`[PortalPet] launchService(${serviceKey}, ${subdomain}, ${browserChannel})`);
+  const context = await getContext(browserProfile, subdomain, browserChannel);
   // (수정) 이미 다른 화면이 떠서 사용 중이면(사용자가 방금 전 메뉴로 연 화면이 아직 열려 있으면)
   // 그 화면을 그대로 두고 이번 클릭은 새 탭에서 실행한다 - 예전엔 항상 같은 탭을 재사용해서
   // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
@@ -1562,9 +1576,9 @@ function findEdufineApprovalCountInPage() {
  * 결재 대기 문서 건수를 확인한다(캐릭터에 배지로 표시하기 위한 용도). launchService와 달리
  * 화면 전환 없이(이미 K-에듀파인에 있으면 그 화면 그대로) 상태바 배지만 읽고 끝낸다.
  */
-async function checkEdufineApprovalCount(subdomain, password, browserProfile = null) {
-  console.log(`[PortalPet] checkEdufineApprovalCount(${subdomain})`);
-  const context = await getContext(browserProfile, subdomain);
+async function checkEdufineApprovalCount(subdomain, password, browserProfile = null, browserChannel = 'chrome') {
+  console.log(`[PortalPet] checkEdufineApprovalCount(${subdomain}, ${browserChannel})`);
+  const context = await getContext(browserProfile, subdomain, browserChannel);
   const page = await getPage(context);
   await closeExtraPages(context, page);
 

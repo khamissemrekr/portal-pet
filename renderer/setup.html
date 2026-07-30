@@ -65,14 +65,25 @@
     <span>자동 로그인 (끄면 인증서 창에서 비밀번호를 직접 입력해야 합니다)</span>
   </label>
 
+  <label>브라우저
+    <select id="browserChannel">
+      <option value="chrome">Chrome</option>
+      <option value="msedge">Edge</option>
+    </select>
+  </label>
+  <div class="note">
+    이 PC에 설치된 크롬 또는 엣지를 그대로 실행해서 사용합니다(둘 다 크로미움 기반). 인증서 로그인에
+    쓰는 보안프로그램이 그 브라우저에 아직 설치돼 있지 않다면, 처음 실행 시 설치 안내가 뜰 수 있습니다.
+  </div>
+
   <label>브라우저 프로필
     <select id="browserProfile">
       <option value="__dedicated__">PortalPet 전용 프로필 (추천)</option>
     </select>
   </label>
   <div class="note">
-    기존에 쓰던 크롬 프로필을 선택하면 로그인·보안프로그램 설정이 이미 돼 있어 첫 화면부터 매끄럽습니다.
-    단, <b>그 프로필로 크롬이 이미 켜져 있으면</b> 먼저 크롬을 완전히 종료해야 동작합니다.
+    기존에 쓰던 프로필을 선택하면 로그인·보안프로그램 설정이 이미 돼 있어 첫 화면부터 매끄럽습니다.
+    단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
   </div>
 
   <label style="margin-top:16px;">자주 가는 사이트</label>
@@ -103,9 +114,32 @@
     const regionSelect = document.getElementById('region');
     const customWrap = document.getElementById('customWrap');
     const profileSelect = document.getElementById('browserProfile');
+    const browserChannelSelect = document.getElementById('browserChannel');
 
     regionSelect.addEventListener('change', () => {
       customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
+    });
+
+    // 브라우저(크롬/엣지)를 바꾸면 그 브라우저에 설치된 프로필 목록으로 다시 불러온다.
+    // selectedValue를 넘기면(초기 로드 시 저장된 값 복원용) 목록에 있을 때 그 값으로 맞춰준다 -
+    // 없으면(다른 브라우저로 바꿔서 예전 프로필이 더는 없는 경우 등) 기본값인 전용 프로필로 둔다.
+    async function reloadProfileList(channel, selectedValue) {
+      const profiles = await window.portalPet.listBrowserProfiles(channel);
+      profileSelect.innerHTML = '<option value="__dedicated__">PortalPet 전용 프로필 (추천)</option>';
+      for (const p of profiles) {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify({ root: p.root, folder: p.folder });
+        opt.textContent = `${p.name} (${p.folder})`;
+        profileSelect.appendChild(opt);
+      }
+      if (selectedValue) {
+        const match = [...profileSelect.options].find((o) => o.value === selectedValue);
+        if (match) profileSelect.value = selectedValue;
+      }
+    }
+
+    browserChannelSelect.addEventListener('change', () => {
+      reloadProfileList(browserChannelSelect.value);
     });
 
     let hasExistingPassword = false;
@@ -154,26 +188,17 @@
     });
 
     async function init() {
-      const [profiles, config] = await Promise.all([
-        window.portalPet.listChromeProfiles(),
-        window.portalPet.getConfig(),
-      ]);
+      const config = await window.portalPet.getConfig();
 
-      for (const p of profiles) {
-        const opt = document.createElement('option');
-        opt.value = JSON.stringify({ root: p.root, folder: p.folder });
-        opt.textContent = `${p.name} (${p.folder})`;
-        profileSelect.appendChild(opt);
-      }
+      browserChannelSelect.value = config?.browserChannel === 'msedge' ? 'msedge' : 'chrome';
+      const wantedProfile = config?.browserProfile
+        ? JSON.stringify({ root: config.browserProfile.root, folder: config.browserProfile.folder })
+        : null;
+      await reloadProfileList(browserChannelSelect.value, wantedProfile);
 
       // 지역 선택 기능은 우선 숨김 - 저장된 값과 무관하게 항상 "경기"로 고정한다.
       regionSelect.value = '경기';
       customWrap.style.display = 'none';
-      if (config?.browserProfile) {
-        const wanted = JSON.stringify({ root: config.browserProfile.root, folder: config.browserProfile.folder });
-        const match = [...profileSelect.options].find((o) => o.value === wanted);
-        if (match) profileSelect.value = wanted;
-      }
       hasExistingPassword = !!config?.encryptedPasswordBase64;
       if (hasExistingPassword) {
         document.getElementById('password').placeholder = '변경하려면 입력 (그대로 두면 기존 비밀번호 유지)';
@@ -207,9 +232,10 @@
         return;
       }
       const browserProfile = profileSelect.value === '__dedicated__' ? null : JSON.parse(profileSelect.value);
+      const browserChannel = browserChannelSelect.value === 'msedge' ? 'msedge' : 'chrome';
       const autoLaunchMessenger = document.getElementById('autoLaunchMessenger').checked;
       const autoLaunchSchedule = document.getElementById('autoLaunchSchedule').checked;
-      await window.portalPet.saveSetup({ region, subdomain, password, browserProfile, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin });
+      await window.portalPet.saveSetup({ region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin });
     });
   </script>
 </body>

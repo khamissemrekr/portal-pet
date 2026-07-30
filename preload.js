@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('portalPet', {
   onConfigUpdated: (callback) => ipcRenderer.on('config-updated', () => callback()),
   saveSetup: (data) => ipcRenderer.invoke('save-setup', data),
   deletePassword: () => ipcRenderer.invoke('delete-password'),
-  listChromeProfiles: () => ipcRenderer.invoke('list-chrome-profiles'),
+  // channel: 'chrome' | 'msedge' - 설정 창에서 브라우저를 바꿀 때마다 그 브라우저의 프로필 목록을 다시 불러온다.
+  listBrowserProfiles: (channel) => ipcRenderer.invoke('list-browser-profiles', channel),
   // K-에듀파인 결재 대기 건수 확인(공문 왔는지) - 버튼 클릭으로만 동작, 자동 백그라운드 폴링은 하지 않음.
   checkEdufineApprovals: () => ipcRenderer.invoke('check-edufine-approvals'),
   getConfig: () => ipcRenderer.invoke('get-config'),
