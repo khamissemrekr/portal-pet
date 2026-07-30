@@ -245,9 +245,16 @@ function renderCustomLinks(customLinks) {
   }
 }
 
+// 메뉴(펼침 패널) 배경 투명도 - 설정 창의 슬라이더 값(0.2~1)을 CSS 변수로 반영한다.
+function applyPanelOpacity(config) {
+  const alpha = typeof config?.panelOpacity === 'number' ? config.panelOpacity : 0.92;
+  document.documentElement.style.setProperty('--panel-alpha', String(alpha));
+}
+
 async function loadCustomLinks() {
   const config = await window.portalPet.getConfig();
   renderCustomLinks(config?.customLinks);
+  applyPanelOpacity(config);
 }
 loadCustomLinks();
 window.portalPet.onConfigUpdated(loadCustomLinks);

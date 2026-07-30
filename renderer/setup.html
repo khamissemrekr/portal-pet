@@ -7,6 +7,7 @@
   body { font-family: 'Malgun Gothic', sans-serif; background: #1e1e22; color: #eee; padding: 16px; }
   label { display: block; margin-top: 12px; font-size: 13px; color: #ccc; }
   input, select { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border-radius: 6px; border: 1px solid #555; background: #2a2a2e; color: #fff; }
+  input[type="range"] { padding: 4px 0; border: none; background: transparent; }
   button { margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #4C8BF5; color: #fff; font-weight: 600; cursor: pointer; }
   button:hover { background: #3a6fd8; }
   .note { font-size: 11px; color: #999; margin-top: 6px; }
@@ -86,6 +87,11 @@
     단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
   </div>
 
+  <label>메뉴 투명도 (<span id="opacityValue">92</span>%)
+    <input id="panelOpacity" type="range" min="20" max="100" step="1" value="92" />
+  </label>
+  <div class="note">캐릭터를 클릭했을 때 펼쳐지는 메뉴 배경의 투명도입니다. 낮출수록 더 투명해집니다.</div>
+
   <label style="margin-top:16px;">자주 가는 사이트</label>
   <div id="customLinksList"></div>
   <div style="display:flex; gap:6px; margin-top:6px;">
@@ -115,9 +121,15 @@
     const customWrap = document.getElementById('customWrap');
     const profileSelect = document.getElementById('browserProfile');
     const browserChannelSelect = document.getElementById('browserChannel');
+    const opacityInput = document.getElementById('panelOpacity');
+    const opacityValueLabel = document.getElementById('opacityValue');
 
     regionSelect.addEventListener('change', () => {
       customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
+    });
+
+    opacityInput.addEventListener('input', () => {
+      opacityValueLabel.textContent = opacityInput.value;
     });
 
     // 브라우저(크롬/엣지)를 바꾸면 그 브라우저에 설치된 프로필 목록으로 다시 불러온다.
@@ -196,6 +208,10 @@
         : null;
       await reloadProfileList(browserChannelSelect.value, wantedProfile);
 
+      const opacityPercent = Math.round((typeof config?.panelOpacity === 'number' ? config.panelOpacity : 0.92) * 100);
+      opacityInput.value = String(opacityPercent);
+      opacityValueLabel.textContent = String(opacityPercent);
+
       // 지역 선택 기능은 우선 숨김 - 저장된 값과 무관하게 항상 "경기"로 고정한다.
       regionSelect.value = '경기';
       customWrap.style.display = 'none';
@@ -235,7 +251,8 @@
       const browserChannel = browserChannelSelect.value === 'msedge' ? 'msedge' : 'chrome';
       const autoLaunchMessenger = document.getElementById('autoLaunchMessenger').checked;
       const autoLaunchSchedule = document.getElementById('autoLaunchSchedule').checked;
-      await window.portalPet.saveSetup({ region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin });
+      const panelOpacity = Number(opacityInput.value) / 100;
+      await window.portalPet.saveSetup({ region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin, panelOpacity });
     });
   </script>
 </body>

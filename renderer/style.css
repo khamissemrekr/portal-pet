@@ -1,5 +1,8 @@
 html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: 'Malgun Gothic', sans-serif; }
 
+/* 메뉴(펼침 패널) 배경 투명도 - 설정 창의 슬라이더 값으로 renderer.js가 이 변수를 바꿔준다. */
+:root { --panel-alpha: 0.92; }
+
 #root { display: flex; align-items: flex-start; height: 100%; }
 
 #pet {
@@ -32,7 +35,7 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 
 #panel {
   width: 300px; height: 100%;
-  background: rgba(30, 30, 34, 0.92);
+  background: rgba(30, 30, 34, var(--panel-alpha, 0.92));
   border-radius: 12px;
   color: #f1f1f1;
   padding: 12px;

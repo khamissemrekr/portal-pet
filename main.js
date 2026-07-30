@@ -250,12 +250,18 @@ function sanitizeCustomLinks(customLinks) {
     .map((l) => ({ label: l.label, url: /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}` }));
 }
 
-ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin }) => {
+ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin, panelOpacity }) => {
   const previous = credentialStore.loadConfig();
   // 비밀번호 칸을 비워두고 저장하면(지역/프로필만 바꾸는 경우) 기존 저장값을 그대로 둔다.
   const encryptedPasswordBase64 = password
     ? credentialStore.encryptPassword(password)
     : previous.encryptedPasswordBase64 || '';
+
+  // 슬라이더 값(숫자)이 아니거나 범위를 벗어나면 기존 값(또는 기본값)으로 되돌린다.
+  const parsedOpacity = Number(panelOpacity);
+  const safeOpacity = Number.isFinite(parsedOpacity)
+    ? Math.min(1, Math.max(0.2, parsedOpacity))
+    : (previous.panelOpacity ?? 0.92);
 
   const config = {
     region,
@@ -267,6 +273,7 @@ ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfil
     autoLaunchSchedule: !!autoLaunchSchedule,
     customLinks: sanitizeCustomLinks(customLinks),
     autoLogin: autoLogin !== false, // 기본값 true - 명시적으로 false를 보낼 때만 수동 입력 모드
+    panelOpacity: safeOpacity, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();

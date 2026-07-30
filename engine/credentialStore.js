@@ -18,12 +18,13 @@ function loadConfig() {
       customLinks: [],
       autoLogin: true, // 기본값: 비밀번호 저장해서 자동 로그인
       browserChannel: 'chrome', // 기본값: 크롬 사용 ('chrome' | 'msedge')
+      panelOpacity: 0.92, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
     };
   }
   // 기존에 저장된 config.json에는 이 필드들이 없을 수 있어(과거 버전 사용자) 기본값으로 채워준다.
   return {
     autoLaunchMessenger: false, autoLaunchSchedule: false, customLinks: [], autoLogin: true,
-    browserChannel: 'chrome',
+    browserChannel: 'chrome', panelOpacity: 0.92,
     ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')),
   };
 }
