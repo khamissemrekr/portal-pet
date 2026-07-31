@@ -1927,14 +1927,17 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
  */
 /**
  * 업무포털 메인의 "나이스 승인사항"/"K-에듀파인 전자결재 현황"/"교육행정데이터통합관리 알림
- * 현황" 박스는 각각 제목 옆에 그 박스만 새로고침하는 아이콘(⟳)을 갖고 있다(사용자 스크린샷
- * 확인). 탭을 재사용해서 페이지 전체를 다시 불러오지 않는 경우(checkPortalDashboard의
- * alreadyOnPortalHome 분기)에도, 이 아이콘을 눌러 그 박스만 새로고침하면 전체 페이지 리로드
- * 없이도 최신 값을 받아올 수 있다 - 페이지를 안 새로고침하면 이전에 읽은 값을 그대로 다시
- * 읽어올 뿐이라는 사용자 지적으로 추가.
- * 정확한 아이콘 선택자를 실측하지 못해, 각 박스의 데이터 컨테이너(.aprvWork1 등 - 이미 실측
- * 확인된 확실한 기준점)에서 몇 단계 위 조상까지만 범위를 좁혀 그 안에서 아이콘류 요소를 찾는다
- * (검색 범위를 그 박스 안으로 한정해 다른 박스나 페이지의 엉뚱한 버튼을 잘못 누르지 않도록 함).
+ * 현황" 박스는 각각 제목 옆에 그 박스만 새로고침하는 아이콘(⟳)을 갖고 있다. 탭을 재사용해서
+ * 페이지 전체를 다시 불러오지 않는 경우(checkPortalDashboard의 alreadyOnPortalHome 분기)에도,
+ * 이 아이콘을 눌러 그 박스만 새로고침하면 전체 페이지 리로드 없이도 최신 값을 받아올 수 있다 -
+ * 페이지를 안 새로고침하면 이전에 읽은 값을 그대로 다시 읽어올 뿐이라는 사용자 지적으로 추가.
+ * (수정) 처음엔 정확한 선택자를 실측하지 못해 "박스 근처의 작은 아이콘류 요소"를 찾는 넓은
+ * 휴리스틱을 썼는데, 사용자가 실제 마크업을 확인해준 결과 나이스 쪽은
+ * <button class="return" id="btnRefreshNeisAprvWork"></button>로 정확한 id를 알 수 있었고,
+ * 그 넓은 휴리스틱은 실측 확인대로 엉뚱한 버튼을 잘못 누르고 있었다(사용자 재현). 이제 이
+ * 프레임워크의 일관된 명명 규칙(id가 "btnRefresh"로 시작, class="return")을 정확히 노려서
+ * 찾는다 - 나이스 외 두 박스의 정확한 id는 아직 실측하지 못했지만, 같은 규칙을 따를 가능성이
+ * 높아 id 접두사 매칭으로 셋 다 한 번에 찾는다.
  */
 function findDashboardRefreshIconsInPage() {
   const isVisible = (e) => {
@@ -1943,31 +1946,11 @@ function findDashboardRefreshIconsInPage() {
     const s = getComputedStyle(e);
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   };
-  const dataSelectors = ['.aprvWork1', '.keduBox1', '.edmgrBox1'];
-  const points = [];
-  for (const sel of dataSelectors) {
-    const dataEl = document.querySelector(sel);
-    if (!dataEl) continue;
-    let container = dataEl;
-    let icon = null;
-    for (let hop = 0; hop < 6 && container && !icon; hop++) {
-      container = container.parentElement;
-      if (!container) break;
-      const candidates = [...container.querySelectorAll(
-        'svg, i, img, button, a, [class*="refresh" i], [class*="reload" i], [aria-label*="새로고침"], [title*="새로고침"]'
-      )].filter((e) => {
-        if (!isVisible(e)) return false;
-        const r = e.getBoundingClientRect();
-        return r.width > 0 && r.width < 40 && r.height > 0 && r.height < 40; // 작은 아이콘류만
-      });
-      if (candidates.length) icon = candidates[0];
-    }
-    if (icon) {
-      const r = icon.getBoundingClientRect();
-      points.push({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-    }
-  }
-  return points;
+  const buttons = [...document.querySelectorAll('button.return[id^="btnRefresh"]')].filter(isVisible);
+  return buttons.map((btn) => {
+    const r = btn.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
 }
 
 /** findDashboardRefreshIconsInPage로 찾은 좌표들을 실제 마우스 클릭으로 하나씩 눌러준다. */
