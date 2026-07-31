@@ -866,11 +866,16 @@ async function goToPortalMenu(page, label, { fallbackUrl = null, password = null
   if (url) {
     console.log(`[PortalPet] portal menu "${label}" -> ${url}`);
     await gotoWithRetry(page, url, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] goto failed:', e.message));
-    // (수정) 이 함수는 나이스/K-에듀파인/G-ONE 진입 경로가 전부 거쳐가는 공통 관문인데, 예전엔
-    // 여기서 공지 팝업을 안 닫아서 openNeisSubMenu/openNeisApproval처럼 "자기 안에서 따로
-    // 챙겨준" 함수만 안전하고, 그 외 경로(예: 하위 메뉴 없이 시스템에 바로 들어가는 경우)는
-    // 공지 팝업이 안 닫힌 채로 남을 수 있었다 - 어떤 경로로 들어오든 여기서 한 번 닫아준다.
-    await closeAnyPopups(page);
+    // (수정) 이 함수는 나이스/K-에듀파인/G-ONE/교데통 진입 경로가 전부 거쳐가는 공통 관문인데,
+    // 예전엔 여기서 공지 팝업을 안 닫아서 openNeisSubMenu/openNeisApproval처럼 "자기 안에서
+    // 따로 챙겨준" 함수만 안전하고, 그 외 경로(예: 하위 메뉴 없이 시스템 헤더 버튼으로 바로
+    // 들어가는 경우)는 공지 팝업이 안 닫힌 채로 남을 수 있었다 - 어떤 경로로 들어오든 여기서
+    // 한 번 닫아준다. (버그 수정) 한 번만 확인하고 끝내는 closeAnyPopups로는 "창이 모두 닫힌
+    // 상태(콜드 스타트)에서 나이스 헤더 버튼을 눌러 들어갈 때" 공지가 늦게 뜨는 경우를 놓쳤다
+    // (사용자 재현: 이 정확한 시나리오로 공지사항이 안 닫힘) - 브라우저를 막 새로 띄운 직후라
+    // 첫 페이지 로드가 평소보다 느려서 이 레이스가 더 잘 드러난 것으로 보인다. 몇 초간
+    // 지켜보는 closeAnyPopupsForAWhile로 바꿔 늦게 뜨는 팝업도 잡는다.
+    await closeAnyPopupsForAWhile(page);
     return page;
   }
   console.log(`[PortalPet] portal menu "${label}" not found in .main-menu`);
@@ -881,7 +886,7 @@ async function goToPortalMenu(page, label, { fallbackUrl = null, password = null
     // 호출한다 - 그 함수가 이제 null이면 자동입력 대신 사용자가 직접 입력할 때까지 기다려준다.
     const loginResult = await completeCertLoginIfNeeded(page, password);
     console.log(`[PortalPet] fallback page ("${label}") login result:`, loginResult);
-    await closeAnyPopups(page); // 폴백 경로로 들어간 경우에도 공지 팝업이 뜰 수 있다.
+    await closeAnyPopupsForAWhile(page); // 폴백 경로로 들어간 경우에도 공지 팝업이 늦게 뜰 수 있다.
   }
   return page;
 }
@@ -890,7 +895,9 @@ async function ensureOnPortalHome(page, subdomain) {
   if (!page.url().includes('.eduptl.kr')) {
     await gotoWithRetry(page, buildPortalUrl(subdomain), { waitUntil: 'domcontentloaded' });
     await waitForPortalMenu(page);
-    await closeAnyPopups(page);
+    // (버그 수정) 콜드 스타트(브라우저를 막 새로 띄운 직후) 직후의 첫 페이지 로드는 평소보다
+    // 느릴 수 있어, 공지 팝업이 고정 시점보다 늦게 뜨는 경우를 여기서도 놓치지 않게 한다.
+    await closeAnyPopupsForAWhile(page);
   }
 }
 
@@ -926,7 +933,9 @@ async function ensureLoggedInOnPortalHome(page, portalUrl) {
   }
 
   await waitForPortalMenu(page);
-  await closeAnyPopups(page); // 포털 홈 공지 팝업이 이후 메뉴 클릭을 가리지 않도록 먼저 닫는다
+  // 로그인 직후(콜드 스타트 포함) 첫 도착 시점이라 공지 팝업이 늦게 뜨는 레이스가 가장 흔하게
+  // 나타나는 지점 중 하나 - 이후 메뉴 클릭을 가리지 않도록 몇 초간 지켜보며 닫는다.
+  await closeAnyPopupsForAWhile(page);
   return true;
 }
 
@@ -1631,7 +1640,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       // "업무포털 메인"은 그 자리에 계속 머무르기 때문에 뒤늦게 뜨는 팝업이 그대로 남는다 -
       // 잠깐 더 기다렸다가 한 번 더 닫기를 시도한다.
       await targetPage.waitForTimeout(1500);
-      await closeAnyPopups(targetPage);
+      await closeAnyPopupsForAWhile(targetPage);
       console.log('[PortalPet] 업무포털 메인 화면에 머무름');
       targetPage = page;
       break;
@@ -1639,7 +1648,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       if (alreadyInTargetSystem) {
         // (수정) 이미 나이스에 있는 상태에서 "나이스" 헤더 버튼을 다시 눌렀을 때는 goToPortalMenu를
         // 아예 안 거쳐서 공지 팝업을 안 닫아주고 있었다(실측 확인) - 여기서도 닫아준다.
-        await closeAnyPopups(page);
+        await closeAnyPopupsForAWhile(page);
         targetPage = page;
       } else {
         targetPage = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
@@ -1647,7 +1656,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       break;
     case 'edufine':
       if (alreadyInTargetSystem) {
-        await closeAnyPopups(page); // 나이스와 동일한 이유
+        await closeAnyPopupsForAWhile(page); // 나이스와 동일한 이유
         targetPage = page;
       } else {
         targetPage = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
@@ -1656,7 +1665,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     case 'gone':
       // 포털 메뉴 실측 라벨: "업무협업G-ONE"
       if (alreadyInTargetSystem) {
-        await closeAnyPopups(page); // 나이스와 동일한 이유
+        await closeAnyPopupsForAWhile(page); // 나이스와 동일한 이유
         targetPage = page;
       } else {
         targetPage = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
