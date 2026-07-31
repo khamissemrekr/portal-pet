@@ -163,10 +163,14 @@ function createTray() {
           : { openAtLogin: item.checked, path: process.execPath, args: [path.resolve(process.argv[1] || '.')] };
         app.setLoginItemSettings(settings);
       } },
-    { type: 'separator' },
     // (임시/테스트용) 실제 포털 로그인 없이도 알림+배지가 어떻게 보이는지 바로 확인할 수 있도록
-    // 임의 값으로 "증가" 상황을 흉내낸다. 실제 데이터가 아니므로 라벨에 명시해둔다.
-    { label: '테스트: 결재/승인 알림 미리보기 (임의 값)', click: testDashboardNotification },
+    // 임의 값으로 "증가" 상황을 흉내낸다. main.js가 그대로 패키징되는 electron-builder 특성상
+    // 수동으로 지우지 않으면 배포판에도 남으므로, app.isPackaged로 개발 모드(npm start)에서만
+    // 보이도록 걸러서 npm run dist로 만든 배포판에는 자동으로 빠지게 한다.
+    ...(app.isPackaged ? [] : [
+      { type: 'separator' },
+      { label: '테스트: 결재/승인 알림 미리보기 (임의 값)', click: testDashboardNotification },
+    ]),
     { type: 'separator' },
     { label: `버전 ${app.getVersion()}`, enabled: false },
     { label: '새 버전 확인 (GitHub Releases)', click: () => shell.openExternal(RELEASES_URL) },
