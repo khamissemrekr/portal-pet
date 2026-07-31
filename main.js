@@ -6,7 +6,7 @@
 const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell, Notification, dialog } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
-const https = require('node:https');
+const { autoUpdater } = require('electron-updater');
 const credentialStore = require('./engine/credentialStore');
 const loginEngine = require('./engine/loginEngine');
 const { REGIONS } = require('./engine/regionMap');
@@ -36,8 +36,7 @@ const PANEL_WIDTH = 300;      // 펼침 패널 폭(px) - 3열 메뉴 구조라 �
 const PANEL_HEIGHT = 360;     // 펼침 패널 높이(px)
 const EDGE_MARGIN = 8;        // 화면 가장자리에서 살짝 보이는 여백(px), 미니모드일 때
 const HOVER_POLL_MS = 150;
-const RELEASES_URL = 'https://github.com/khamissemrekr/portal-pet/releases';
-const GITHUB_REPO = { owner: 'khamissemrekr', repo: 'portal-pet' }; // package.json git remote와 동일
+const RELEASES_URL = 'https://github.com/khamissemrekr/portal-pet/releases'; // 자동 확인 실패 시 안내용
 
 let win;
 let setupWin;
@@ -272,96 +271,108 @@ function openAboutWindow() {
   aboutWin.on('closed', () => { aboutWin = null; });
 }
 
-/**
- * GitHub Releases API(공개 저장소라 인증 토큰 없이도 조회 가능)에서 최신 릴리즈 정보를 가져온다.
- * User-Agent 헤더가 없으면 GitHub API가 403으로 거부하므로 반드시 넣어야 한다.
- */
-function fetchLatestRelease() {
-  return new Promise((resolve, reject) => {
-    const req = https.get({
-      hostname: 'api.github.com',
-      path: `/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/releases/latest`,
-      headers: { 'User-Agent': 'PortalPet-App', Accept: 'application/vnd.github+json' },
-      timeout: 10000,
-    }, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        reject(new Error(`GitHub API 응답 오류 (status ${res.statusCode})`));
-        return;
-      }
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => req.destroy(new Error('요청 시간 초과')));
-  });
+// 예전엔 GitHub Releases API로 최신 버전만 확인하고, 새 버전이 있으면 다운로드 링크를 열어준
+// 뒤 설치는 사용자가 직접 했다(수동 다운로드+실행). electron-updater로 바꿔서 확인→다운로드→
+// 설치까지 자동화한다 - package.json build.publish(GitHub, releaseType: 'release')를 그대로
+// 재사용하므로 배포 설정은 추가로 손댈 게 없다.
+autoUpdater.autoDownload = false; // 사용자에게 먼저 물어보고 다운로드(무단으로 큰 파일 받지 않도록)
+autoUpdater.autoInstallOnAppQuit = true; // 다운로드는 해뒀는데 "나중에"를 고른 경우, 다음 종료 시 자동 설치
+
+// 이벤트가 전역이라(체크할 때마다 리스너를 새로 달면 중복 호출됨) 마지막으로 확인을 요청한
+// 컨텍스트만 기억해뒀다가 이벤트 핸들러에서 그 컨텍스트 기준으로 대화상자를 띄운다.
+let updateCheckContext = { showResultDialog: false, parentWindow: null };
+function showUpdateBox(opts) {
+  const { parentWindow } = updateCheckContext;
+  return (parentWindow && !parentWindow.isDestroyed())
+    ? dialog.showMessageBox(parentWindow, opts)
+    : dialog.showMessageBox(opts);
 }
 
-/** "v0.3.1" 같은 릴리즈 태그와 현재 버전을 숫자 단위로 비교한다(앞의 v는 제거). */
-function isNewerVersion(latestTag, currentVersion) {
-  const toParts = (v) => String(v || '').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
-  const a = toParts(latestTag);
-  const b = toParts(currentVersion);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const av = a[i] || 0;
-    const bv = b[i] || 0;
-    if (av > bv) return true;
-    if (av < bv) return false;
+autoUpdater.on('error', (err) => {
+  console.error('[PortalPet] 새 버전 확인/다운로드 오류:', err);
+  if (updateCheckContext.showResultDialog) {
+    showUpdateBox({
+      type: 'error',
+      title: '새 버전 확인 실패',
+      message: '새 버전을 확인하거나 내려받지 못했습니다. 인터넷 연결을 확인해 주세요.',
+      detail: err.message || String(err),
+      buttons: ['릴리즈 페이지 열기', '닫기'],
+      defaultId: 1,
+      cancelId: 1,
+    }).then(({ response }) => { if (response === 0) shell.openExternal(RELEASES_URL); });
   }
-  return false;
-}
+});
+
+autoUpdater.on('update-not-available', () => {
+  console.log('[PortalPet] 최신 버전 사용 중 (현재:', app.getVersion(), ')');
+  if (updateCheckContext.showResultDialog) {
+    showUpdateBox({
+      type: 'info',
+      title: '최신 버전입니다',
+      message: `현재 최신 버전(v${app.getVersion()})을 사용 중입니다.`,
+    });
+  }
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log('[PortalPet] 새 버전 발견:', info.version);
+  showUpdateBox({
+    type: 'info',
+    title: '새 버전이 있습니다',
+    message: `새 버전 v${info.version}이(가) 있습니다 (현재: v${app.getVersion()}).`,
+    detail: '지금 내려받으시겠습니까? 완료되면 설치 시점을 다시 물어봅니다.',
+    buttons: ['다운로드', '나중에'],
+    defaultId: 0,
+    cancelId: 1,
+  }).then(({ response }) => {
+    if (response === 0) autoUpdater.downloadUpdate();
+  });
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  console.log(`[PortalPet] 새 버전 다운로드 중... ${Math.round(progress.percent)}%`);
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('[PortalPet] 새 버전 다운로드 완료:', info.version);
+  showUpdateBox({
+    type: 'info',
+    title: '설치 준비 완료',
+    message: `새 버전 v${info.version} 설치 준비가 끝났습니다. 지금 재시작해서 설치할까요?`,
+    detail: '"나중에"를 고르면 다음에 프로그램을 종료할 때 자동으로 설치됩니다.',
+    buttons: ['지금 재시작', '나중에'],
+    defaultId: 0,
+    cancelId: 1,
+  }).then(({ response }) => {
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+});
 
 /**
- * 새 버전 확인. 예전엔 그냥 GitHub Releases 페이지를 브라우저로 여는 게 전부였는데(사용자
- * 요청으로 개선) - 이제 API로 최신 릴리즈를 직접 조회해서 현재 버전과 비교하고, 새 버전이
- * 있으면 설치 파일(.exe 에셋)을 바로 다운로드할 수 있는 링크까지 안내한다. showResultDialog가
- * true면(사용자가 직접 버튼/메뉴를 눌러서 확인한 경우) "최신 버전입니다"/오류도 대화상자로
- * 알려주고, false면(추후 자동 백그라운드 확인용으로 남겨둠) 새 버전이 있을 때만 알린다.
+ * 새 버전 확인. showResultDialog가 true면(사용자가 직접 버튼/메뉴를 눌러서 확인한 경우)
+ * "최신 버전입니다"/오류도 대화상자로 알려주고, false면(추후 자동 백그라운드 확인용) 새
+ * 버전이 있을 때만 알린다. 개발 모드(npm start)는 배포 채널 메타파일(app-update.yml)이 없어
+ * electron-updater가 항상 오류를 내므로, 그 경우엔 확인 자체를 건너뛰고 안내만 한다.
  */
 async function checkForUpdates(showResultDialog = false, parentWindow = null) {
-  const boxOpts = (opts) => (parentWindow ? dialog.showMessageBox(parentWindow, opts) : dialog.showMessageBox(opts));
-  try {
-    const release = await fetchLatestRelease();
-    const latestTag = release.tag_name || '';
-    const current = app.getVersion();
-
-    if (isNewerVersion(latestTag, current)) {
-      const asset = (release.assets || []).find((a) => /\.exe$/i.test(a.name || ''));
-      const downloadUrl = asset ? asset.browser_download_url : release.html_url;
-      const { response } = await boxOpts({
-        type: 'info',
-        title: '새 버전이 있습니다',
-        message: `새 버전 ${latestTag}이(가) 있습니다 (현재: v${current}).`,
-        detail: release.name || '',
-        buttons: ['다운로드', '나중에'],
-        defaultId: 0,
-        cancelId: 1,
-      });
-      if (response === 0) shell.openExternal(downloadUrl);
-    } else if (showResultDialog) {
-      await boxOpts({
-        type: 'info',
-        title: '최신 버전입니다',
-        message: `현재 최신 버전(v${current})을 사용 중입니다.`,
-      });
-    }
-  } catch (err) {
-    console.error('[PortalPet] 새 버전 확인 실패:', err);
+  updateCheckContext = { showResultDialog, parentWindow };
+  if (!app.isPackaged) {
+    console.log('[PortalPet] 개발 모드에서는 새 버전 확인을 건너뜀(배포판에서만 동작)');
     if (showResultDialog) {
-      const { response } = await boxOpts({
-        type: 'error',
-        title: '새 버전 확인 실패',
-        message: '새 버전을 확인하지 못했습니다. 인터넷 연결을 확인해 주세요.',
-        detail: err.message || String(err),
-        buttons: ['릴리즈 페이지 열기', '닫기'],
-        defaultId: 1,
-        cancelId: 1,
+      await showUpdateBox({
+        type: 'info',
+        title: '개발 모드',
+        message: '개발 모드(npm start)에서는 새 버전 확인을 지원하지 않습니다. 배포판(설치된 exe)에서 확인해 주세요.',
       });
-      if (response === 0) shell.openExternal(RELEASES_URL);
     }
+    return;
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    // 대부분의 오류는 위 'error' 이벤트로 이미 처리되지만, checkForUpdates() 자체가 던지는
+    // 경우(네트워크 즉시 실패 등)를 대비해 한 번 더 잡아둔다.
+    console.error('[PortalPet] 새 버전 확인 실패:', err);
   }
 }
 
