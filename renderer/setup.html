@@ -76,6 +76,13 @@
     이 PC에 설치된 크롬 또는 엣지를 그대로 실행해서 사용합니다(둘 다 크로미움 기반). 인증서 로그인에
     쓰는 보안프로그램이 그 브라우저에 아직 설치돼 있지 않다면, 처음 실행 시 설치 안내가 뜰 수 있습니다.
   </div>
+  <!-- (수정) 엣지는 크롬보다 테스트가 덜 됐고, 인증서 관련 보안프로그램이 엣지에 따로 설치/등록돼
+       있지 않으면 로그인 자체가 막힐 수 있다(실측 확인) - 엣지 선택 시에만 강조 안내를 보여준다. -->
+  <div id="edgeNote" class="note" style="display:none; color:#e0b050;">
+    ⚠ 엣지는 크롬보다 테스트가 적어 인증서 로그인이 처음엔 안 될 수 있습니다. 엣지를 직접 열어
+    나이스나 K-에듀파인에 한 번 수동으로 로그인해서 필요한 보안프로그램 설치를 먼저 마쳐두면
+    이후 PortalPet에서도 정상 동작합니다. 계속 안 되면 크롬 사용을 권장합니다.
+  </div>
 
   <label>브라우저 프로필
     <select id="browserProfile">
@@ -133,6 +140,7 @@
     const customWrap = document.getElementById('customWrap');
     const profileSelect = document.getElementById('browserProfile');
     const browserChannelSelect = document.getElementById('browserChannel');
+    const edgeNote = document.getElementById('edgeNote');
     const opacityInput = document.getElementById('panelOpacity');
     const opacityValueLabel = document.getElementById('opacityValue');
     const dashboardAutoRefreshInput = document.getElementById('dashboardAutoRefresh');
@@ -172,8 +180,13 @@
       }
     }
 
+    function syncEdgeNote() {
+      edgeNote.style.display = browserChannelSelect.value === 'msedge' ? 'block' : 'none';
+    }
+
     browserChannelSelect.addEventListener('change', () => {
       reloadProfileList(browserChannelSelect.value);
+      syncEdgeNote();
     });
 
     let hasExistingPassword = false;
@@ -225,6 +238,7 @@
       const config = await window.portalPet.getConfig();
 
       browserChannelSelect.value = config?.browserChannel === 'msedge' ? 'msedge' : 'chrome';
+      syncEdgeNote();
       const wantedProfile = config?.browserProfile
         ? JSON.stringify({ root: config.browserProfile.root, folder: config.browserProfile.folder })
         : null;

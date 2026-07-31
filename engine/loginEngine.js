@@ -40,6 +40,22 @@ async function gotoWithRetry(page, url, opts = {}) {
   }
 }
 
+/**
+ * (엣지 지원 정리) 엣지에서 인증서 로그인이 안 되는 경우, 실측으로 확인된 원인은 크롬과 달리
+ * 이 PC의 엣지에 인증서(NPKI) 관련 보안프로그램이 아직 설치/등록돼 있지 않은 경우가 많다는
+ * 것이었다(로딩 오버레이가 안 사라지고 인증서 모달 자체가 안 뜸) - 이건 PortalPet 코드가
+ * 고칠 수 있는 문제가 아니라 그 PC의 엣지에 보안프로그램이 설정돼 있는지의 문제라, 여기서는
+ * 원인을 짐작할 수 있는 안내 문구만 덧붙인다(크롬은 기존 메시지 그대로).
+ */
+function buildLoginFailureMessage(browserChannel) {
+  const base = '인증서 로그인이 완료되지 않은 것 같습니다 (로그인 페이지에 머물러 있음). 비밀번호나 인증서 상태를 확인한 뒤 다시 시도해 주세요.';
+  if (browserChannel === 'msedge') {
+    return base + ' (엣지 사용 시 자주 발생) 이 PC의 엣지에 인증서 관련 보안프로그램이 아직 설치돼 있지 않을 수 있습니다 - ' +
+      '엣지를 직접 열어 나이스나 K-에듀파인에 한 번 수동으로 로그인해 필요한 프로그램 설치를 마친 뒤 다시 시도해 주세요.';
+  }
+  return base;
+}
+
 let sharedContext = null;
 // (수정) 예전엔 클릭마다 무조건 같은 탭 하나만 재사용했다 - 그런데 이미 한 화면(예: 기안문
 // 작성 중)이 떠 있는 상태에서 다른 메뉴(예: 품의 작성)를 누르면 그 화면을 밀어내고 사라지게
@@ -1716,10 +1732,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     // 상태로 넘어가지 않도록).
     const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
     if (!reachedHome) {
-      throw new Error(
-        '인증서 로그인이 완료되지 않은 것 같습니다 (로그인 페이지에 머물러 있음). ' +
-        '비밀번호나 인증서 상태를 확인한 뒤 다시 시도해 주세요.'
-      );
+      throw new Error(buildLoginFailureMessage(browserChannel));
     }
   }
 
@@ -1869,10 +1882,7 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
     console.log('[PortalPet] login result:', loginResult);
     const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
     if (!reachedHome) {
-      throw new Error(
-        '인증서 로그인이 완료되지 않은 것 같습니다 (로그인 페이지에 머물러 있음). ' +
-        '비밀번호나 인증서 상태를 확인한 뒤 다시 시도해 주세요.'
-      );
+      throw new Error(buildLoginFailureMessage(browserChannel));
     }
   }
 
