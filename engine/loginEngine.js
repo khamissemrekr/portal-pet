@@ -694,7 +694,9 @@ const POPUP_SKIP_CHECKBOX_CANDIDATES = [
   '1주일동안 열지 않기', '오늘 하루 보지 않기', '오늘 하루 이상 열지 않기', '오늘 하루 열지 않기',
   '오늘 하루 창 열지 않음', '일주일 창 열지 않음',
 ];
-const POPUP_CLOSE_BUTTON_CANDIDATES = ['닫기', '확인'];
+// (수정) POPUP_CLOSE_BUTTON_CANDIDATES(페이지 전체에서 "닫기"/"확인" 텍스트를 찾아 닫던 목록
+// 화면용 안전망)는 closeAnyPopupsCore에서 실제 결재 목록의 정상 버튼을 잘못 클릭하는 사고가
+// 재현돼 제거했다 - 아래 findTopmostDialogCloseButtonInPage 설명 참고.
 
 /**
  * 로그인 직후 포털 홈이나 G-ONE 등에 공지 팝업이 뜨는 경우가 있다(실측 확인).
@@ -875,15 +877,16 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
       continue;
     }
 
-    // ".cl-dialog" 형태가 아닌 일반 팝업(포털 홈 등)은 기존 방식대로 텍스트로 찾아 닫는다.
-    const closed = await findAndMouseClick(page, findVisibleLeafCenterInPage, {
-      candidates: POPUP_CLOSE_BUTTON_CANDIDATES,
-      closestSelector: 'button,a,[role="button"]',
-    });
-
-    if (!closed) break;
-    console.log('[PortalPet] closed a popup');
-    await page.waitForTimeout(200);
+    // (버그 수정 5 - 실측 확인) ".cl-dialog"가 아닌 일반 팝업 대응으로 페이지 전체에서 "확인"/
+    // "닫기" 텍스트를 무조건 찾아 클릭하던 이 경로를 완전히 껐다. 나이스 결재(미결/협조함)
+    // 같은 목록 화면에는 행마다 "확인"/"닫기" 라벨의 정상 동작 버튼이 여러 개 있을 수 있는데,
+    // data-pp-tried 표식으로 무한 재클릭은 막았어도 이 경로가 그 버튼들을 하나씩 순서대로
+    // 전부(사용자 재현: 로그에 "closed a popup"이 19번 연속, 서로 다른 버튼을 하나씩 클릭한
+    // 것으로 추정) 실제로 클릭해버렸다 - 실제 결재/승인 목록의 버튼을 잘못 눌러버릴 수 있는
+    // 위험한 동작이라 더는 감수할 수 없다고 판단. 알려진 실제 공지 팝업은 전부 .cl-dialog나
+    // role="dialog" 래퍼를 쓰는 것으로 확인됐으므로(위 findTopmostDialogCloseButtonInPage가
+    // 처리), 그 래퍼가 없는 팝업까지 잡으려던 이 마지막 안전망은 득보다 실이 커서 제거한다.
+    break;
   }
 }
 
