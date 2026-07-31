@@ -70,12 +70,13 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 }
 .service-btn.header:hover { background: rgba(58, 111, 216, var(--panel-alpha, 0.92)); }
 
-/* 나이스 결재("미결/협조함") / 공문 결재("결재(긴급)") 자동 확인 배지 */
+/* 나이스 결재("미결/협조함") / 공문 결재("결재(긴급)") / 교데통("내부승인(처리)") 자동 확인 배지.
+   (수정) 사용자 피드백 - 숫자가 작아서 가독성이 떨어짐. 크기/글자를 전체적으로 키움. */
 .dashboard-badge {
-  position: absolute; top: -6px; right: -4px;
-  min-width: 16px; height: 16px; padding: 0 3px; box-sizing: border-box;
-  border-radius: 8px; background: #ea4335; color: #fff;
-  font-size: 9.5px; font-weight: 700; line-height: 15px; text-align: center;
+  position: absolute; top: -8px; right: -6px;
+  min-width: 20px; height: 20px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 10px; background: #ea4335; color: #fff;
+  font-size: 12px; font-weight: 700; line-height: 16px; text-align: center;
   border: 2px solid #1e1e22; /* 패널 자체는 투명도가 바뀌니 배지 테두리는 고정색으로 항상 또렷하게 */
 }
 .dashboard-badge.hidden { display: none; }
