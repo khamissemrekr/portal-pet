@@ -174,8 +174,12 @@ function stopHoverWatch() {
 // ===== 트레이 =====
 function createTray() {
   tray = new Tray(path.join(__dirname, 'theme', 'tray-icon.png'));
+  // (수정) 구분선이 너무 많다는 사용자 지적으로 3그룹(핵심 조작 / 부가 기능·정보 / 종료)으로
+  // 정리 - 구분선 4개(개발 모드 기준)에서 2개로 줄었다. '설정' 라벨도 예전엔 "설정 (지역/
+  // 비밀번호)"였는데, 이제 메뉴 패널 하단 톱니 아이콘으로도 설정을 열 수 있어 괄호 설명이
+  // 중복이라 단순화했다.
   const menu = Menu.buildFromTemplate([
-    { label: '설정 (지역/비밀번호)', click: openSetupWindow },
+    { label: '설정', click: openSetupWindow },
     { label: '펼치기/접기', click: togglePanel },
     // (수정) 사용자 요청으로 당장은 필요 없어서 숨김 - enterMiniMode/exitMiniMode 등 기능 코드는 그대로 둔다.
     // { label: '미니 모드', type: 'checkbox', checked: false, click: (item) => item.checked ? enterMiniMode() : exitMiniMode() },
@@ -195,17 +199,14 @@ function createTray() {
     // 수동으로 지우지 않으면 배포판에도 남으므로, app.isPackaged로 개발 모드(npm start)에서만
     // 보이도록 걸러서 npm run dist로 만든 배포판에는 자동으로 빠지게 한다.
     ...(app.isPackaged ? [] : [
-      { type: 'separator' },
       { label: '테스트: 결재/승인 알림 미리보기 (임의 값)', click: testDashboardNotification },
     ]),
-    { type: 'separator' },
     // 문제가 생겼을 때 사용자가 개발자 도구 없이도 로그 파일을 바로 찾아 보낼 수 있도록.
     { label: '로그 폴더 열기', click: () => {
       const logPath = getLogFilePath();
       if (logPath) shell.showItemInFolder(logPath);
       else console.error('[PortalPet] 로그 파일이 아직 준비되지 않음');
     } },
-    { type: 'separator' },
     // (수정) "버전 x.x.x" 표시 + "새 버전 확인" 링크 열기 두 항목을, 버전/새 버전 확인 버튼/문의를
     // 한 곳에 모은 "프로그램 정보" 창 하나로 통합(사용자 요청).
     { label: '프로그램 정보', click: openAboutWindow },
