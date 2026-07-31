@@ -12,6 +12,17 @@ const { REGIONS } = require('./engine/regionMap');
 const { listBrowserProfiles } = require('./engine/browserProfiles');
 const { startDialogSuppressor, stopDialogSuppressor } = require('./engine/dialogSuppressor');
 
+// Windows 알림에 "Electron" 대신 "PortalPet"으로 표시되도록 AppUserModelID를 지정한다
+// (package.json build.appId와 동일한 값 - 나중에 배포판이 그 id로 시작 메뉴 바로가기를 만듦).
+// (주의) app.setName()으로 앱 이름 자체를 바꾸는 방법도 있지만, app.getPath('userData')가
+// 그 이름(package.json "name": "portal-pet")을 그대로 폴더명으로 쓰고 있어서 - loginEngine의
+// browser-profile 폴더, credentialStore의 저장된 설정/비밀번호가 전부 그 경로 아래 있다 -
+// 이름을 바꾸면 기존에 저장돼 있던 프로필/설정을 다른 폴더에서 찾게 돼 못 보게 되는 부작용이
+// 있다. 그래서 저장 경로와 무관한 AppUserModelID만 따로 지정한다.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.portalpet.app');
+}
+
 // ===== 설정 =====
 const PET_SIZE = 96;          // 대기 상태 캐릭터 크기(px)
 const PANEL_WIDTH = 300;      // 펼침 패널 폭(px) - 3열 메뉴 구조라 기존보다 넓힘
