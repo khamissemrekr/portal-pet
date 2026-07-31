@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
-const { buildPortalUrl, buildNiceUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
+const { buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
 
 // (수정) 엣지 지원 추가 - "PortalPet 전용 프로필"은 어떤 브라우저(channel)를 쓰느냐에 따라
 // 폴더를 분리한다. 크롬은 기존 사용자들의 이미 마쳐둔 보안프로그램/인증서 설정이 담긴 폴더명을
@@ -318,7 +318,7 @@ async function getPage(context) {
  * "다른 시스템"으로 취급한다(새 탭을 여는 쪽으로).
  */
 async function currentTabSystemGroup(page, subdomain) {
-  if (await isOnSystem(page, 'nice', subdomain)) return 'nice';
+  if (await isOnSystem(page, 'neis', subdomain)) return 'neis';
   if (await isOnSystem(page, 'edufine', subdomain)) return 'edufine';
   if (await isOnSystem(page, 'gone', subdomain)) return 'gone';
   if (await isOnSystem(page, 'edmgr', subdomain)) return 'edmgr';
@@ -372,7 +372,7 @@ async function openFreshTab(context) {
  * 안에 모달/서브윈도우로 떠 있는 경우만 DOM을 한 번 스캔해서 본다. page.evaluate 한 번이라
  * 없으면 거의 즉시(수 ms) false가 나온다 - 이걸로 불필요한 닫기 시도(수 초 낭비)를 건너뛴다.
  */
-async function isNiceRequestPopupVisible(page) {
+async function isNeisRequestPopupVisible(page) {
   return page.evaluate(() => {
     const isVisible = (e) => {
       const r = e.getBoundingClientRect();
@@ -486,7 +486,7 @@ async function tryClickCloseButtonByText(page) {
  * 저장 여부를 묻는 확인창이 뜨면 "확인"까지 눌러 완전히 닫는다. confirm() 같은 크롬 네이티브
  * JS 다이얼로그가 뜨는 경우도 있어 그 순간만 자동으로 수락하도록 리스너를 잠깐 붙인다.
  */
-async function closeNiceRequestPopup(page) {
+async function closeNeisRequestPopup(page) {
   const onDialog = async (dialog) => {
     console.log('[PortalPet] 신청서 창 닫기 중 뜬 대화상자 자동 확인:', dialog.message());
     await dialog.accept().catch(() => {});
@@ -537,7 +537,7 @@ async function closeExtraPages(context, keepPage) {
     // 자동으로 닫지 않는다. 여기서 정리 대상은 그 목록에 없는, 진짜 leftover 팝업/서브윈도우뿐이다.
     if (mainServiceTabs.has(p)) continue;
     console.log('[PortalPet] closing leftover page:', p.url());
-    await closeNiceRequestPopup(p).catch(() => {});
+    await closeNeisRequestPopup(p).catch(() => {});
     if (!p.isClosed()) {
       await p.close().catch((e) => console.log('[PortalPet] closing leftover page failed (non-fatal):', e.message));
     }
@@ -810,7 +810,7 @@ async function goToPortalMenu(page, label, { fallbackUrl = null, password = null
     console.log(`[PortalPet] portal menu "${label}" -> ${url}`);
     await gotoWithRetry(page, url, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] goto failed:', e.message));
     // (수정) 이 함수는 나이스/K-에듀파인/G-ONE 진입 경로가 전부 거쳐가는 공통 관문인데, 예전엔
-    // 여기서 공지 팝업을 안 닫아서 openNiceSubMenu/openNiceApproval처럼 "자기 안에서 따로
+    // 여기서 공지 팝업을 안 닫아서 openNeisSubMenu/openNeisApproval처럼 "자기 안에서 따로
     // 챙겨준" 함수만 안전하고, 그 외 경로(예: 하위 메뉴 없이 시스템에 바로 들어가는 경우)는
     // 공지 팝업이 안 닫힌 채로 남을 수 있었다 - 어떤 경로로 들어오든 여기서 한 번 닫아준다.
     await closeAnyPopups(page);
@@ -1024,7 +1024,7 @@ async function ensureEdufineMegaMenuExpanded(page, leafLabel, categoryLabel) {
  * aria-controls 패널 안에서만 찾아야 좌측 메뉴의 "권한 신청" 등 다른 동명 요소와 절대
  * 헷갈리지 않는다. 전역에서 exact 텍스트로 찾는 것보다 훨씬 안전하다.
  */
-async function clickNiceTaskControl(page, tabName, controlText) {
+async function clickNeisTaskControl(page, tabName, controlText) {
   const handle = await page.evaluateHandle(({ tabName, controlText }) => {
     const visible = (e) => {
       if (!e) return false;
@@ -1057,7 +1057,7 @@ async function clickNiceTaskControl(page, tabName, controlText) {
  * 안 펼쳐지고 별도의 펼침 아이콘을 눌러야 하는 경우가 있다. 하위 메뉴가 이미 보이면
  * 아무것도 안 하고, 안 보이면 "복무" 항목의 펼침 아이콘을 찾아 누른다.
  */
-async function ensureNiceDutyMenuExpanded(page, subMenuLabel) {
+async function ensureNeisDutyMenuExpanded(page, subMenuLabel) {
   const isSubMenuVisible = () => page.evaluate((n) => {
     const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
     return [...document.querySelectorAll('.cl-text,a.cl-sidenavigation-item,a[title]')].some((e) => {
@@ -1143,7 +1143,7 @@ function currentHostname(page) {
 
 async function isOnSystem(page, system, subdomain) {
   const host = currentHostname(page);
-  if (system === 'nice') return host === `${subdomain}.neis.go.kr`;
+  if (system === 'neis') return host === `${subdomain}.neis.go.kr`;
   if (system === 'edufine') return host.startsWith('klef.');
   if (system === 'gone') {
     const goneUrl = GONE_URL_BY_SUBDOMAIN[subdomain];
@@ -1246,44 +1246,44 @@ async function openEdufineApproval(page, subdomain, password, alreadyOnEdufine =
  * 복무/출장: 포털 -> 나이스(SSO) -> 복무 메뉴(필요시 펼침) -> 개인근무상황관리/개인출장관리
  * -> 신청 버튼. "신청"은 현재 탭 패널 안에서만 찾아 좌측 메뉴의 "권한 신청" 등과 헷갈리지 않는다.
  */
-async function openNiceSubMenu(page, subdomain, taskTabName, password, alreadyOnNice = false) {
+async function openNeisSubMenu(page, subdomain, taskTabName, password, alreadyOnNeis = false) {
   let target = page;
-  if (alreadyOnNice) {
+  if (alreadyOnNeis) {
     console.log('[PortalPet] 이미 나이스에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNiceUrl(subdomain), password });
+    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
     await target.waitForTimeout(1500);
   }
   // (수정) 공지사항 팝업은 나이스에 "처음" 들어갈 때만 뜨는 게 아니라, 이미 나이스에 있는
-  // 상태(alreadyOnNice)에서도(예: 다른 메뉴를 갔다가 다시 나이스 결재/복무 등을 누를 때)
-  // 다시 뜨는 경우가 실측 확인됨 - 이전엔 alreadyOnNice일 때 이 호출이 아예 생략돼서 공지
-  // 팝업이 안 닫힌 채로 남아 있었다(사용자가 스크린샷으로 재현 확인). alreadyOnNice 여부와
+  // 상태(alreadyOnNeis)에서도(예: 다른 메뉴를 갔다가 다시 나이스 결재/복무 등을 누를 때)
+  // 다시 뜨는 경우가 실측 확인됨 - 이전엔 alreadyOnNeis일 때 이 호출이 아예 생략돼서 공지
+  // 팝업이 안 닫힌 채로 남아 있었다(사용자가 스크린샷으로 재현 확인). alreadyOnNeis 여부와
   // 무관하게 매번 먼저 닫아준다 - 팝업이 없으면 closeAnyPopups는 거의 즉시 끝난다.
   await closeAnyPopups(target);
   // (수정) 근무상황신청 다이얼로그는 화면 전체를 덮지 않는 플로팅 창이라, 좌측 "복무" 메뉴가
   // 시각적으로 가려지지 않아 클릭 자체는 "성공"해버릴 수 있다(다이얼로그는 그대로 열린 채).
   // 그래서 클릭 실패 여부와 무관하게, 먼저 열려 있는지부터 확인해서 선제적으로 닫는다.
-  if (alreadyOnNice && (await isNiceRequestPopupVisible(target))) {
+  if (alreadyOnNeis && (await isNeisRequestPopupVisible(target))) {
     console.log('[PortalPet] "복무" 클릭 전 신청서 창이 열려 있음 확인 - 먼저 닫기');
-    await closeNiceRequestPopup(target);
+    await closeNeisRequestPopup(target);
   }
   let dutyClicked = await clickText(target, '복무');
-  if (!dutyClicked && alreadyOnNice) {
+  if (!dutyClicked && alreadyOnNeis) {
     // 이전 화면(예: 신청서 작성 폼)이 같은 탭에서 좌측 메뉴 자체를 가리고 있을 수 있다.
     // 먼저 실제로 그 창이 떠 있는지 즉시 확인(수 ms)한 뒤 - 떠 있을 때만 닫기 절차를 시도해서
     // 괜히 없는 창을 찾느라 시간을 낭비하지 않는다. 그래도 안 되면 나이스 기본 화면으로 재이동.
-    const popupVisible = await isNiceRequestPopupVisible(target);
+    const popupVisible = await isNeisRequestPopupVisible(target);
     if (popupVisible) {
       console.log('[PortalPet] "복무" 클릭 실패 - 신청서 창이 떠 있음, 닫기 시도');
-      await closeNiceRequestPopup(target);
+      await closeNeisRequestPopup(target);
       dutyClicked = await clickText(target, '복무');
     } else {
       console.log('[PortalPet] "복무" 클릭 실패 - 신청서 창은 안 보임, 바로 기본 화면으로 재이동');
     }
     if (!dutyClicked) {
       console.log('[PortalPet] 여전히 실패 - 나이스 기본 화면으로 재이동해서 복구 시도');
-      await target.goto(buildNiceUrl(subdomain), { waitUntil: 'domcontentloaded' }).catch((e) =>
+      await target.goto(buildNeisUrl(subdomain), { waitUntil: 'domcontentloaded' }).catch((e) =>
         console.log('[PortalPet] 나이스 기본 화면 재이동 실패:', e.message)
       );
       await target.waitForTimeout(1200);
@@ -1292,10 +1292,10 @@ async function openNiceSubMenu(page, subdomain, taskTabName, password, alreadyOn
     }
   }
   await target.waitForTimeout(500);
-  await ensureNiceDutyMenuExpanded(target, taskTabName);
+  await ensureNeisDutyMenuExpanded(target, taskTabName);
   await clickText(target, taskTabName);
   await target.waitForTimeout(800);
-  const clicked = await clickNiceTaskControl(target, taskTabName, '신청');
+  const clicked = await clickNeisTaskControl(target, taskTabName, '신청');
   if (!clicked) {
     console.log('[PortalPet] 탭 스코프 "신청" 버튼 탐색 실패 - 일반 텍스트 클릭으로 재시도');
     await clickText(target, '신청', { exact: true });
@@ -1308,24 +1308,24 @@ async function openNiceSubMenu(page, subdomain, taskTabName, password, alreadyOn
  * <a class="cl-leaf cl-level-1 cl-sidenavigation-item" title="미결/협조함" data-role="menuitem">
  * cl-level-1(최상위 항목)이라 "복무"처럼 상위 메뉴를 펼칠 필요 없이 바로 클릭 가능하다.
  */
-async function openNiceApproval(page, subdomain, password, alreadyOnNice = false) {
+async function openNeisApproval(page, subdomain, password, alreadyOnNeis = false) {
   let target = page;
-  if (alreadyOnNice) {
+  if (alreadyOnNeis) {
     console.log('[PortalPet] 이미 나이스에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNiceUrl(subdomain), password });
+    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
     await target.waitForTimeout(1500);
   }
-  // (수정) alreadyOnNice일 때도(이미 나이스에 있다가 "나이스 결재"를 다시 누르는 경우 등)
+  // (수정) alreadyOnNeis일 때도(이미 나이스에 있다가 "나이스 결재"를 다시 누르는 경우 등)
   // 공지사항 팝업이 다시 뜰 수 있는데, 예전엔 이 호출이 fresh-navigation 분기 안에만 있어서
-  // alreadyOnNice면 아예 건너뛰었다 - 그래서 "미결/협조함" 클릭 전에 팝업이 안 닫힌 채로
+  // alreadyOnNeis면 아예 건너뛰었다 - 그래서 "미결/협조함" 클릭 전에 팝업이 안 닫힌 채로
   // 남는 문제가 있었다(스크린샷으로 재현 확인). 매번 먼저 닫아준다.
   await closeAnyPopups(target);
   // 근무상황신청 등 신청서 창이 좌측 메뉴를 가리고 있을 수 있으니 먼저 확인 후 닫는다
-  // (openNiceSubMenu와 동일한 이유 - 다이얼로그가 화면 전체를 덮지 않아 클릭이 조용히 씹힐 수 있음).
-  if (alreadyOnNice && (await isNiceRequestPopupVisible(target))) {
-    await closeNiceRequestPopup(target);
+  // (openNeisSubMenu와 동일한 이유 - 다이얼로그가 화면 전체를 덮지 않아 클릭이 조용히 씹힐 수 있음).
+  if (alreadyOnNeis && (await isNeisRequestPopupVisible(target))) {
+    await closeNeisRequestPopup(target);
   }
   let clicked = await clickText(target, '미결/협조함');
   if (!clicked) {
@@ -1494,7 +1494,7 @@ async function openEdmgrApproval(page, subdomain, password, alreadyOnEdmgr = fal
 // 거칠 필요가 없다(사용자 제안: "나이스에 있는지 에듀파인에 있는지 G-ONE에 있는지에 따라
 // 다시 포털 화면으로 나가지 않고 바로 다른 메뉴로 이동").
 const SERVICE_SYSTEM = {
-  nice: 'nice', bokmu: 'nice', trip: 'nice', nice_approval: 'nice',
+  neis: 'neis', bokmu: 'neis', trip: 'neis', neis_approval: 'neis',
   edufine: 'edufine', giahn: 'edufine', pumui: 'edufine', edufine_approval: 'edufine',
   gone: 'gone', gone_msg: 'gone', gone_ai: 'gone', gone_schedule: 'gone',
   edmgr_approval: 'edmgr',
@@ -1519,13 +1519,13 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // (수정) 근무상황신청/출장신청 창은 새 탭이 아니라 같은 페이지 안의 오버레이 다이얼로그로
   // 뜬다는 게 실측으로 확인됨 - closeExtraPages는 "다른" 페이지만 검사하므로 이 경우를
   // 놓친다. keep하는 page 자기 자신도 검사해서 열려 있으면 닫는다.
-  // (성능 수정) 이 검사는 NICE 전용(.cl-dialog-close 등)인데, 이전엔 K-에듀파인/G-ONE으로
+  // (성능 수정) 이 검사는 NEIS 전용(.cl-dialog-close 등)인데, 이전엔 K-에듀파인/G-ONE으로
   // 갈 때도 매번 돌고 있었다 - document.querySelectorAll('*') 전체 스캔이라 무거운 화면에서는
-  // 불필요한 지연이 된다. 현재 탭이 NICE에 있을 때만 검사하도록 제한한다(URL만 보는 가벼운
+  // 불필요한 지연이 된다. 현재 탭이 NEIS에 있을 때만 검사하도록 제한한다(URL만 보는 가벼운
   // 체크라 비용이 거의 없다).
-  if ((await isOnSystem(page, 'nice', subdomain)) && (await isNiceRequestPopupVisible(page))) {
+  if ((await isOnSystem(page, 'neis', subdomain)) && (await isNeisRequestPopupVisible(page))) {
     console.log('[PortalPet] 현재 탭에 신청서 창(오버레이)이 열려 있음 - 닫기 시도');
-    await closeNiceRequestPopup(page);
+    await closeNeisRequestPopup(page);
   }
 
   const targetSystem = SERVICE_SYSTEM[serviceKey] || null;
@@ -1572,14 +1572,14 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       console.log('[PortalPet] 업무포털 메인 화면에 머무름');
       targetPage = page;
       break;
-    case 'nice':
+    case 'neis':
       if (alreadyInTargetSystem) {
         // (수정) 이미 나이스에 있는 상태에서 "나이스" 헤더 버튼을 다시 눌렀을 때는 goToPortalMenu를
         // 아예 안 거쳐서 공지 팝업을 안 닫아주고 있었다(실측 확인) - 여기서도 닫아준다.
         await closeAnyPopups(page);
         targetPage = page;
       } else {
-        targetPage = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNiceUrl(subdomain), password });
+        targetPage = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
       }
       break;
     case 'edufine':
@@ -1609,13 +1609,13 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       targetPage = await openEdufineApproval(page, subdomain, password, alreadyInTargetSystem);
       break;
     case 'bokmu':
-      targetPage = await openNiceSubMenu(page, subdomain, '개인근무상황관리', password, alreadyInTargetSystem);
+      targetPage = await openNeisSubMenu(page, subdomain, '개인근무상황관리', password, alreadyInTargetSystem);
       break;
     case 'trip':
-      targetPage = await openNiceSubMenu(page, subdomain, '개인출장관리', password, alreadyInTargetSystem);
+      targetPage = await openNeisSubMenu(page, subdomain, '개인출장관리', password, alreadyInTargetSystem);
       break;
-    case 'nice_approval':
-      targetPage = await openNiceApproval(page, subdomain, password, alreadyInTargetSystem);
+    case 'neis_approval':
+      targetPage = await openNeisApproval(page, subdomain, password, alreadyInTargetSystem);
       break;
     case 'gone_msg':
       targetPage = await openGoneSubMenu(context, page, subdomain, ['메신저'], password, alreadyInTargetSystem);
@@ -1663,7 +1663,7 @@ function extractPortalDashboardCounts() {
     return map;
   };
   return {
-    nice: { ...readSection('.aprvWork1'), ...readSection('.aprvWork2') },
+    neis: { ...readSection('.aprvWork1'), ...readSection('.aprvWork2') },
     edufine: { ...readSection('.keduBox1'), ...readSection('.keduBox2') },
     edmgr: { ...readSection('.edmgrBox1'), ...readSection('.edmgrBox2') },
   };
@@ -1736,7 +1736,7 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
     throw new Error('포털 메인 화면에서 현황 데이터를 찾지 못했습니다. 화면 구성이 바뀌었을 수 있습니다.');
   }
   console.log('[PortalPet] 포털 현황:', result);
-  return { ok: true, nice: result.nice, edufine: result.edufine, edmgr: result.edmgr };
+  return { ok: true, neis: result.neis, edufine: result.edufine, edmgr: result.edmgr };
 }
 
 /**

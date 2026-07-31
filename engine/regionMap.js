@@ -36,7 +36,7 @@ function buildPortalUrl(subdomain) {
   return `https://${subdomain}.eduptl.kr/bpm_man_mn00_001.do`;
 }
 
-function buildNiceUrl(subdomain) {
+function buildNeisUrl(subdomain) {
   return `https://${subdomain}.neis.go.kr/jsp/main.jsp`;
 }
 
@@ -65,7 +65,7 @@ module.exports = {
   REGIONS,
   getOffice,
   buildPortalUrl,
-  buildNiceUrl,
+  buildNeisUrl,
   buildEdufineUrl,
   buildEdmgrUrl,
   GONE_URL_BY_SUBDOMAIN,

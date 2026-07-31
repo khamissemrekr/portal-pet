@@ -3,11 +3,11 @@
 // 높이가 달라질 수 있어서, 균일한 grid가 아니라 열별 독립 flex 레이아웃을 쓴다.
 const COLUMNS = [
   {
-    key: 'nice', label: '나이스',
+    key: 'neis', label: '나이스',
     subs: [
       { key: 'bokmu', label: '복무 신청' },
       { key: 'trip', label: '출장 신청' },
-      { key: 'nice_approval', label: '나이스 결재' },
+      { key: 'neis_approval', label: '나이스 결재' },
     ],
   },
   {
@@ -83,11 +83,11 @@ function setButtonsDisabled(disabled) {
 
 // 나이스 결재/공문 결재/교데통 내부승인처리 버튼에 붙는 자동 확인 배지(주기적으로 main.js가
 // 보내주는 데이터로 갱신). 버튼 element가 만들어질 때 key -> 배지 span을 기록해뒀다가,
-// updateDashboardBadges에서 찾아 쓴다. bucket은 checkPortalDashboard 결과(nice/edufine/edmgr)
+// updateDashboardBadges에서 찾아 쓴다. bucket은 checkPortalDashboard 결과(neis/edufine/edmgr)
 // 중 어디서 값을 읽을지, label은 그 안에서 찾을 정확한 라벨 텍스트.
 const dashboardBadgeEls = {};
 const DASHBOARD_BADGE_CONFIG = {
-  nice_approval: { bucket: 'nice', label: '미결/협조함' },
+  neis_approval: { bucket: 'neis', label: '미결/협조함' },
   edufine_approval: { bucket: 'edufine', label: '결재(긴급)' },
   edmgr_approval: { bucket: 'edmgr', label: '내부승인(처리)' },
 };

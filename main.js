@@ -380,11 +380,11 @@ function scheduleDashboardRefresh() {
 // 교데통 내부승인(처리))을 여기서도 추적한다. "늘어났을 때만" 알린다 - 줄어들거나 그대로면
 // 이미 처리됐거나 변화가 없다는 뜻이라 알릴 필요가 없다.
 const DASHBOARD_NOTIFY_CONFIG = [
-  { bucket: 'nice', label: '미결/협조함', title: '나이스 결재' },
+  { bucket: 'neis', label: '미결/협조함', title: '나이스 결재' },
   { bucket: 'edufine', label: '결재(긴급)', title: 'K-에듀파인 공문 결재' },
   { bucket: 'edmgr', label: '내부승인(처리)', title: '교데통 내부승인 처리' },
 ];
-// 직전 확인 결과(checkPortalDashboard의 { nice, edufine, edmgr } 형태) - 다음 확인 때 비교 기준.
+// 직전 확인 결과(checkPortalDashboard의 { neis, edufine, edmgr } 형태) - 다음 확인 때 비교 기준.
 let lastDashboardCounts = null;
 
 function parseLeadingCount(rawValue) {
@@ -430,10 +430,10 @@ function notifyDashboardIncreases(result) {
  * 걸 볼 수 있도록 'portal-dashboard-updated'도 같이 보낸다. 테스트가 끝나면 다음 정기/수동
  * 확인이 실제 값으로 lastDashboardCounts를 다시 덮어써서 자연히 정상 상태로 돌아온다.
  */
-function buildFakeDashboardResult({ nice, edufine, edmgr }) {
+function buildFakeDashboardResult({ neis, edufine, edmgr }) {
   return {
     ok: true,
-    nice: { '미결/협조함': String(nice) },
+    neis: { '미결/협조함': String(neis) },
     edufine: { '결재(긴급)': `${edufine}(0)` },
     edmgr: { '내부승인(처리)': String(edmgr) },
   };
@@ -441,8 +441,8 @@ function buildFakeDashboardResult({ nice, edufine, edmgr }) {
 
 function testDashboardNotification() {
   console.log('[PortalPet] 알림 테스트: 임의 값으로 증가 알림 미리보기');
-  const before = buildFakeDashboardResult({ nice: 0, edufine: 0, edmgr: 0 });
-  const after = buildFakeDashboardResult({ nice: 2, edufine: 1, edmgr: 3 });
+  const before = buildFakeDashboardResult({ neis: 0, edufine: 0, edmgr: 0 });
+  const after = buildFakeDashboardResult({ neis: 2, edufine: 1, edmgr: 3 });
   lastDashboardCounts = before; // 기준값을 임의로 세팅(테스트용 - 실제 값을 일시적으로 덮어씀)
   notifyDashboardIncreases(after);
   if (win && !win.isDestroyed()) win.webContents.send('portal-dashboard-updated', after); // 패널 배지도 같이 확인 가능
