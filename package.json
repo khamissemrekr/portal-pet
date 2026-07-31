@@ -16,7 +16,8 @@
     "publish": {
       "provider": "github",
       "owner": "khamissemrekr",
-      "repo": "portal-pet"
+      "repo": "portal-pet",
+      "releaseType": "release"
     },
     "win": {
       "target": "nsis",
