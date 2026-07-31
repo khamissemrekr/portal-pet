@@ -3,9 +3,10 @@
 // 숨어 있다가 마우스를 올리면 튀어나오는 방식)와 시스템 트레이 UX를 참고해 새로 구현.
 // 코드/아트워크는 그대로 가져오지 않고, 우리 목적(원클릭 업무포털 접속)에 맞게 최소 구성으로 재작성.
 
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell, Notification } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell, Notification, dialog } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
+const https = require('node:https');
 const credentialStore = require('./engine/credentialStore');
 const loginEngine = require('./engine/loginEngine');
 const { REGIONS } = require('./engine/regionMap');
@@ -30,9 +31,11 @@ const PANEL_HEIGHT = 360;     // 펼침 패널 높이(px)
 const EDGE_MARGIN = 8;        // 화면 가장자리에서 살짝 보이는 여백(px), 미니모드일 때
 const HOVER_POLL_MS = 150;
 const RELEASES_URL = 'https://github.com/khamissemrekr/portal-pet/releases';
+const GITHUB_REPO = { owner: 'khamissemrekr', repo: 'portal-pet' }; // package.json git remote와 동일
 
 let win;
 let setupWin;
+let aboutWin;
 let tray;
 let isExpanded = false;
 let isMiniMode = false;
@@ -151,7 +154,8 @@ function createTray() {
   const menu = Menu.buildFromTemplate([
     { label: '설정 (지역/비밀번호)', click: openSetupWindow },
     { label: '펼치기/접기', click: togglePanel },
-    { label: '미니 모드', type: 'checkbox', checked: false, click: (item) => item.checked ? enterMiniMode() : exitMiniMode() },
+    // (수정) 사용자 요청으로 당장은 필요 없어서 숨김 - enterMiniMode/exitMiniMode 등 기능 코드는 그대로 둔다.
+    // { label: '미니 모드', type: 'checkbox', checked: false, click: (item) => item.checked ? enterMiniMode() : exitMiniMode() },
     { type: 'separator' },
     { label: 'Windows 시작 시 자동 실행', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
       // 개발 모드(npm start)에서 이 옵션을 켜면 path가 electron.exe만 가리켜서(앱 경로 없이) 부팅 시
@@ -172,8 +176,9 @@ function createTray() {
       { label: '테스트: 결재/승인 알림 미리보기 (임의 값)', click: testDashboardNotification },
     ]),
     { type: 'separator' },
-    { label: `버전 ${app.getVersion()}`, enabled: false },
-    { label: '새 버전 확인 (GitHub Releases)', click: () => shell.openExternal(RELEASES_URL) },
+    // (수정) "버전 x.x.x" 표시 + "새 버전 확인" 링크 열기 두 항목을, 버전/새 버전 확인 버튼/문의를
+    // 한 곳에 모은 "프로그램 정보" 창 하나로 통합(사용자 요청).
+    { label: '프로그램 정보', click: openAboutWindow },
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ]);
@@ -212,6 +217,11 @@ ipcMain.handle('get-config', () => credentialStore.loadConfig());
 ipcMain.handle('toggle-panel', () => togglePanel());
 ipcMain.handle('open-external', (_evt, url) => shell.openExternal(url));
 
+// ===== 프로그램 정보 창용 =====
+ipcMain.handle('get-app-version', () => app.getVersion());
+// 정보 창에서 버튼을 눌러 확인하는 경우 - 사용자가 직접 누른 것이므로 결과(최신/오류)도 항상 알려준다.
+ipcMain.handle('check-for-updates', (evt) => checkForUpdates(true, BrowserWindow.fromWebContents(evt.sender)));
+
 // ===== 드래그로 펫 위치 이동 =====
 // 렌더러가 mousemove마다 스크린 좌표 델타(dx, dy)를 보내면 그만큼 창을 옮긴다. frame:false라
 // -webkit-app-region: drag를 못 쓰는(클릭 토글과 충돌) 대신 직접 구현. 드래그 중엔 미니모드의
@@ -226,13 +236,120 @@ ipcMain.on('move-pet-by', (_evt, dx, dy) => {
 // ===== 최초 설정(지역 + 인증서 비밀번호) =====
 function openSetupWindow() {
   if (setupWin) { setupWin.focus(); return; }
+  // (수정) 항목이 많아서(브라우저/프로필/투명도/자동확인/자주 가는 사이트/자동 실행 등) 360x460으론
+  // 좁고 잘려 보인다는 사용자 피드백 - 가로/세로를 넉넉하게 키움.
   setupWin = new BrowserWindow({
-    width: 360, height: 460, resizable: false,
+    width: 460, height: 720, resizable: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true },
   });
   setupWin.setMenuBarVisibility(false);
   setupWin.loadFile(path.join(__dirname, 'renderer', 'setup.html'));
   setupWin.on('closed', () => { setupWin = null; });
+}
+
+// ===== 프로그램 정보(버전 / 새 버전 확인 / 문의) =====
+function openAboutWindow() {
+  if (aboutWin) { aboutWin.focus(); return; }
+  aboutWin = new BrowserWindow({
+    width: 360, height: 320, resizable: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true },
+  });
+  aboutWin.setMenuBarVisibility(false);
+  aboutWin.loadFile(path.join(__dirname, 'renderer', 'about.html'));
+  aboutWin.on('closed', () => { aboutWin = null; });
+}
+
+/**
+ * GitHub Releases API(공개 저장소라 인증 토큰 없이도 조회 가능)에서 최신 릴리즈 정보를 가져온다.
+ * User-Agent 헤더가 없으면 GitHub API가 403으로 거부하므로 반드시 넣어야 한다.
+ */
+function fetchLatestRelease() {
+  return new Promise((resolve, reject) => {
+    const req = https.get({
+      hostname: 'api.github.com',
+      path: `/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/releases/latest`,
+      headers: { 'User-Agent': 'PortalPet-App', Accept: 'application/vnd.github+json' },
+      timeout: 10000,
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`GitHub API 응답 오류 (status ${res.statusCode})`));
+        return;
+      }
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('요청 시간 초과')));
+  });
+}
+
+/** "v0.3.1" 같은 릴리즈 태그와 현재 버전을 숫자 단위로 비교한다(앞의 v는 제거). */
+function isNewerVersion(latestTag, currentVersion) {
+  const toParts = (v) => String(v || '').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const a = toParts(latestTag);
+  const b = toParts(currentVersion);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const av = a[i] || 0;
+    const bv = b[i] || 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return false;
+}
+
+/**
+ * 새 버전 확인. 예전엔 그냥 GitHub Releases 페이지를 브라우저로 여는 게 전부였는데(사용자
+ * 요청으로 개선) - 이제 API로 최신 릴리즈를 직접 조회해서 현재 버전과 비교하고, 새 버전이
+ * 있으면 설치 파일(.exe 에셋)을 바로 다운로드할 수 있는 링크까지 안내한다. showResultDialog가
+ * true면(사용자가 직접 버튼/메뉴를 눌러서 확인한 경우) "최신 버전입니다"/오류도 대화상자로
+ * 알려주고, false면(추후 자동 백그라운드 확인용으로 남겨둠) 새 버전이 있을 때만 알린다.
+ */
+async function checkForUpdates(showResultDialog = false, parentWindow = null) {
+  const boxOpts = (opts) => (parentWindow ? dialog.showMessageBox(parentWindow, opts) : dialog.showMessageBox(opts));
+  try {
+    const release = await fetchLatestRelease();
+    const latestTag = release.tag_name || '';
+    const current = app.getVersion();
+
+    if (isNewerVersion(latestTag, current)) {
+      const asset = (release.assets || []).find((a) => /\.exe$/i.test(a.name || ''));
+      const downloadUrl = asset ? asset.browser_download_url : release.html_url;
+      const { response } = await boxOpts({
+        type: 'info',
+        title: '새 버전이 있습니다',
+        message: `새 버전 ${latestTag}이(가) 있습니다 (현재: v${current}).`,
+        detail: release.name || '',
+        buttons: ['다운로드', '나중에'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (response === 0) shell.openExternal(downloadUrl);
+    } else if (showResultDialog) {
+      await boxOpts({
+        type: 'info',
+        title: '최신 버전입니다',
+        message: `현재 최신 버전(v${current})을 사용 중입니다.`,
+      });
+    }
+  } catch (err) {
+    console.error('[PortalPet] 새 버전 확인 실패:', err);
+    if (showResultDialog) {
+      const { response } = await boxOpts({
+        type: 'error',
+        title: '새 버전 확인 실패',
+        message: '새 버전을 확인하지 못했습니다. 인터넷 연결을 확인해 주세요.',
+        detail: err.message || String(err),
+        buttons: ['릴리즈 페이지 열기', '닫기'],
+        defaultId: 1,
+        cancelId: 1,
+      });
+      if (response === 0) shell.openExternal(RELEASES_URL);
+    }
+  }
 }
 
 // 사용자가 입력한 자주 가는 사이트 목록을 정리한다: 이름/주소 둘 다 있는 항목만, 앞뒤 공백

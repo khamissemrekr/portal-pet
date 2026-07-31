@@ -20,4 +20,7 @@ contextBridge.exposeInMainWorld('portalPet', {
   movePetBy: (dx, dy) => ipcRenderer.send('move-pet-by', dx, dy),
   // 자주 가는 사이트(사용자 지정 링크)는 SSO 자동화 대상이 아니라 그냥 기본 브라우저로 연다.
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // 프로그램 정보 창(버전 표시 / 새 버전 확인 버튼)에서 사용.
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 });

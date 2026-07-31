@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>PortalPet 정보</title>
+<style>
+  body {
+    font-family: 'Malgun Gothic', sans-serif; background: #1e1e22; color: #eee;
+    padding: 20px; text-align: center; box-sizing: border-box;
+  }
+  .icon { font-size: 40px; line-height: 1; margin-bottom: 4px; }
+  h2 { margin: 4px 0 2px; }
+  .version { color: #a0a0a6; font-size: 13px; margin-bottom: 18px; }
+  button {
+    width: 100%; padding: 10px; border: none; border-radius: 6px;
+    background: #4C8BF5; color: #fff; font-weight: 600; cursor: pointer; margin-top: 6px;
+  }
+  button:hover { background: #3a6fd8; }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .contact { margin-top: 20px; font-size: 12px; color: #a0a0a6; }
+  .contact .email { color: #8ab4ff; cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="icon">🐯</div>
+  <h2>PortalPet</h2>
+  <div class="version">버전 <span id="version">-</span></div>
+
+  <button id="checkBtn">새 버전 확인</button>
+
+  <div class="contact">문의: <span id="contactEmail" class="email">khami@ssem.re.kr</span></div>
+
+  <script>
+    async function init() {
+      const version = await window.portalPet.getAppVersion();
+      document.getElementById('version').textContent = version;
+    }
+    init();
+
+    document.getElementById('checkBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('checkBtn');
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = '확인 중...';
+      try {
+        await window.portalPet.checkForUpdates();
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    });
+
+    // mailto: 링크는 BrowserWindow 안에서 <a href>로 직접 열면 동작이 일관되지 않아,
+    // 패널의 "자주 가는 사이트"와 동일하게 openExternal(기본 메일 앱으로 위임)을 쓴다.
+    document.getElementById('contactEmail').addEventListener('click', () => {
+      window.portalPet.openExternal('mailto:khami@ssem.re.kr');
+    });
+  </script>
+</body>
+</html>
