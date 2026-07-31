@@ -309,6 +309,7 @@ async function getPage(context) {
     mainServiceTabs.delete(page);
     if (sharedPage === page) sharedPage = null; // 그 사이 새 탭이 만들어졌으면 그건 건드리지 않음
   });
+  await installPopupWatcher(page);
   return sharedPage;
 }
 
@@ -362,6 +363,7 @@ async function openFreshTab(context) {
     mainServiceTabs.delete(page);
     if (sharedPage === page) sharedPage = null;
   });
+  await installPopupWatcher(page);
   console.log('[PortalPet] 기존 탭이 이미 사용 중 - 화면을 유지한 채 새 탭을 열어 실행');
   return page;
 }
@@ -773,7 +775,7 @@ function findTopmostDialogCloseButtonInPage() {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
-async function closeAnyPopups(page, { maxAttempts = 8 } = {}) {
+async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
     // "다시 보지 않기"류 체크박스가 있으면 먼저 체크 - 실패해도(없어도) 무시하고 계속 진행.
     await findAndMouseClick(page, findVisibleLeafCenterInPage, {
@@ -800,6 +802,99 @@ async function closeAnyPopups(page, { maxAttempts = 8 } = {}) {
     if (!closed) break;
     console.log('[PortalPet] closed a popup');
     await page.waitForTimeout(200);
+  }
+}
+
+/**
+ * (개선) 팝업 지속 감시(installPopupWatcher, 아래)를 붙이면서, 백그라운드 감시가 알림을 받는
+ * 순간과 launchService 흐름이 명시적으로 closeAnyPopups를 호출하는 순간이 겹쳐 같은 페이지에서
+ * 동시에 실제 마우스 클릭 두 개가 경쟁할 위험이 생겼다(둘 다 findAndMouseClick으로 진짜 좌표를
+ * 클릭하므로, 겹치면 화면이 바뀌는 도중에 좌표가 어긋난 클릭이 나갈 수 있다). 페이지별로 호출을
+ * 줄 세워서(이전 호출이 끝난 뒤에만 다음 호출이 시작되도록) 이 경쟁을 없앤다 - launchService의
+ * runQueued/taskQueue와 동일한 패턴을 페이지 단위로 축소한 것.
+ */
+const popupCloseQueues = new WeakMap();
+function closeAnyPopups(page, opts) {
+  const prev = popupCloseQueues.get(page) || Promise.resolve();
+  const run = () => closeAnyPopupsCore(page, opts);
+  const result = prev.then(run, run);
+  popupCloseQueues.set(page, result.then(() => {}, () => {}));
+  return result;
+}
+
+/**
+ * "cl-" 커스텀 UI는 팝업이 여러 화면에서, 화면 전환 애니메이션 도중이나 로그인 직후처럼
+ * 예측하기 어려운 시점에 뜬다 - 예전에는 launchService 흐름 중 몇몇 지점에서만 "몇 초간
+ * 폴링"(closeAnyPopupsForAWhile)하는 식으로 대응했는데, 그 창을 벗어난 타이밍에 뜨는 팝업은
+ * 여전히 놓쳐서 같은 종류의 버그가 화면을 옮길 때마다 계속 재발했다(실측 재현 여러 건). 이제
+ * MutationObserver로 페이지가 살아있는 동안 계속 감시하다가, 팝업으로 보이는 요소가 DOM에
+ * 나타나는 즉시(폴링 간격을 기다릴 필요 없이) Node 쪽에 알려서 바로 닫는다.
+ * (주의) "cl-" 프레임워크는 합성 클릭(.click())에 반응하지 않는 것으로 실측 확인돼 있다 - 그래서
+ * 페이지 안 스크립트는 "떴다는 것을 감지해서 알리기"까지만 하고, 실제 클릭은 항상 Node 쪽
+ * closeAnyPopups(findAndMouseClick, 진짜 마우스 이벤트)가 수행한다.
+ */
+const popupWatcherInstalled = new WeakSet();
+
+function popupWatcherInitScript() {
+  const isVisible = (e) => {
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const looksLikePopup = () => {
+    if ([...document.querySelectorAll('.cl-dialog, [role="dialog"]')].some(isVisible)) return true;
+    const texts = ['닫기', '확인', '1주일동안 열지 않기', '오늘 하루 보지 않기', '오늘 하루 이상 열지 않기'];
+    return [...document.querySelectorAll('*')].some((e) => {
+      if (e.children.length > 2) return false; // 버튼/라벨처럼 짧고 구체적인 요소만
+      const t = (e.textContent || '').trim();
+      return t && texts.includes(t) && isVisible(e);
+    });
+  };
+  // 뮤테이션이 짧은 시간에 여러 번 몰려와도(예: 화면 전체가 다시 그려질 때) 한 번만 알리도록
+  // 디바운스한다 - Node 쪽 window.__portalPetNotifyPopup 호출 자체가 비용이 크지 않지만,
+  // 너무 자주 부르면 closeAnyPopups 큐가 필요 이상으로 밀린다.
+  let notifyTimer = null;
+  const scheduleCheck = () => {
+    if (notifyTimer) return;
+    notifyTimer = setTimeout(() => {
+      notifyTimer = null;
+      if (looksLikePopup() && window.__portalPetNotifyPopup) {
+        window.__portalPetNotifyPopup();
+      }
+    }, 300);
+  };
+  const observer = new MutationObserver(scheduleCheck);
+  const start = () => {
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
+      scheduleCheck(); // 감시를 시작하는 시점에 이미 팝업이 떠 있을 수도 있으니 한 번 즉시 확인
+    } else {
+      document.addEventListener('DOMContentLoaded', start, { once: true });
+    }
+  };
+  start();
+}
+
+/**
+ * 이 page가 살아있는 동안 팝업을 지속 감시하도록 설치한다. page.addInitScript는 그 page의
+ * 이후 모든 내비게이션(새 문서 로드)마다 매번 다시 실행되므로, 한 번만 등록해두면 나이스/
+ * K-에듀파인/G-ONE/교데통 등 어떤 화면으로 이동하든 감시가 계속 이어진다. getPage/openFreshTab
+ * (탭이 새로 만들어지는 두 지점)에서 한 번씩 호출한다 - 이미 설치된 page에는 다시 설치하지
+ * 않는다(WeakSet으로 추적, page.exposeFunction을 같은 이름으로 중복 등록하면 에러가 난다).
+ */
+async function installPopupWatcher(page) {
+  if (popupWatcherInstalled.has(page)) return;
+  popupWatcherInstalled.add(page);
+  try {
+    await page.exposeFunction('__portalPetNotifyPopup', () => {
+      closeAnyPopups(page).catch((e) => console.log('[PortalPet] 팝업 지속 감시 - 닫기 실패(non-fatal):', e.message));
+    });
+    await page.addInitScript(popupWatcherInitScript);
+    // addInitScript는 "다음" 내비게이션부터 적용되므로, 이미 로드돼 있는 현재 문서에도 즉시 적용한다.
+    await page.evaluate(popupWatcherInitScript).catch(() => {});
+  } catch (e) {
+    popupWatcherInstalled.delete(page);
+    console.log('[PortalPet] 팝업 지속 감시 설치 실패(non-fatal):', e.message);
   }
 }
 
