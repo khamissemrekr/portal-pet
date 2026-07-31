@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('portalPet', {
   launchService: (serviceKey, region) => ipcRenderer.invoke('launch-service', serviceKey, region),
   togglePanel: () => ipcRenderer.invoke('toggle-panel'),
+  // 메뉴 하단 톱니 아이콘에서 설정 창을 바로 연다.
+  openSetup: () => ipcRenderer.invoke('open-setup-window'),
   onPanelState: (callback) => ipcRenderer.on('panel-state', (_evt, expanded) => callback(expanded)),
   // 설정 창에서 저장(자주 가는 사이트 등 변경)이 끝나면 펫 패널이 목록을 다시 불러오도록 알림.
   onConfigUpdated: (callback) => ipcRenderer.on('config-updated', () => callback()),

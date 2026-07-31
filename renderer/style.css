@@ -107,4 +107,13 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 }
 #error-box.hidden { display: none; }
 
-.panel-footer { margin-top: 10px; font-size: 11px; color: #a0a0a6; }
+.panel-footer {
+  margin-top: 10px; font-size: 11px; color: #a0a0a6;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+}
+/* 메뉴 하단 톱니 아이콘 - 클릭하면 설정 창이 바로 열린다(트레이 메뉴를 거치지 않아도 됨). */
+#footer-settings-btn {
+  flex: 0 0 auto; width: 20px; height: 20px; padding: 0; border: none; border-radius: 5px;
+  background: transparent; color: #a0a0a6; font-size: 13px; line-height: 1; cursor: pointer;
+}
+#footer-settings-btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }

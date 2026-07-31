@@ -227,6 +227,8 @@ ipcMain.handle('list-browser-profiles', (_evt, channel) => listBrowserProfiles(c
 ipcMain.handle('get-config', () => credentialStore.loadConfig());
 
 ipcMain.handle('toggle-panel', () => togglePanel());
+// 메뉴 하단의 톱니 아이콘에서 설정 창을 바로 열 수 있도록(트레이 메뉴를 거치지 않고).
+ipcMain.handle('open-setup-window', () => openSetupWindow());
 ipcMain.handle('open-external', (_evt, url) => shell.openExternal(url));
 
 // ===== 프로그램 정보 창용 =====

@@ -262,6 +262,11 @@ window.portalPet.onPanelState((expanded) => {
   document.getElementById('panel').classList.toggle('hidden', !expanded);
 });
 
+// 메뉴 하단 톱니 아이콘 - 트레이 메뉴를 거치지 않고 바로 설정 창을 연다.
+document.getElementById('footer-settings-btn').addEventListener('click', () => {
+  window.portalPet.openSetup();
+});
+
 // ===== 자주 가는 사이트 (사용자 지정 링크) =====
 // SSO 자동화 대상이 아니라 그냥 기본 브라우저로 여는 단순 바로가기라, launchService가 아니라
 // openExternal을 쓴다. 설정 창에서 저장할 때마다 'config-updated'가 와서 목록을 다시 그린다.
