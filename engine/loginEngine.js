@@ -728,12 +728,19 @@ function findVisibleLeafCenterInPage({ candidates, closestSelector }) {
   if (isVisible(document.querySelector('#btnLgn')) || isVisible(document.querySelector('input[name="certPassword"]'))) {
     return null;
   }
+  // (버그 수정) 근무상황신청/출장신청/기안문 작성 같은 실제 업무 화면의 버튼("확인"/"닫기" 등)도
+  // 이 텍스트 매칭에 그대로 걸린다(실측 확인) - 그 요소가 다이얼로그/폼 안에 있고 그 안에 실제
+  // 입력 요소(input/select/textarea)가 있으면 공지 팝업이 아니라 작업 중인 화면으로 보고
+  // 건드리지 않는다(다이얼로그/폼에 안 속한 요소는 기존대로 그대로 둔다).
+  const hasFormInputs = (el) => !!el.querySelector('input:not([type="checkbox"]), select, textarea');
   for (const text of candidates) {
     const xs = [...document.querySelectorAll('*')]
       .filter((e) => (e.textContent || '').trim() === text && isVisible(e))
       .sort((a, b) => a.children.length - b.children.length);
     if (xs.length) {
       const target = xs[0].closest(closestSelector) || xs[0];
+      const container = target.closest('.cl-dialog, [role="dialog"], form');
+      if (container && hasFormInputs(container)) continue;
       const r = target.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }
@@ -789,6 +796,14 @@ function findTopmostDialogCloseButtonInPage() {
     // z-index가 더 크거나 같으면(동률이면 DOM상 나중에 뜬 쪽을 더 위로 취급) 갱신한다.
     if (z >= topZ) { topDialog = dialogs[i]; topZ = z; }
   }
+
+  // (버그 수정) 근무상황신청/출장신청/기안문 작성 같은 실제 업무 화면도 같은 "cl-dialog"/
+  // role="dialog" 래퍼를 쓴다(실측 확인: "신청" 버튼으로 막 연 신청서 창이 이 함수에 "가장 위
+  // 다이얼로그"로 잡혀 곧바로 닫혀버림). 순수 안내 팝업은 텍스트/체크박스뿐이라 입력 요소가
+  // 없지만, 실제 업무 화면은 반드시 input/select/textarea 같은 입력 요소를 포함하므로 이를
+  // 기준으로 구분한다 - 입력 요소가 있으면 절대 자동으로 닫지 않는다.
+  const hasFormInputs = (el) => !!el.querySelector('input:not([type="checkbox"]), select, textarea');
+  if (hasFormInputs(topDialog)) return null;
 
   const closeIcon = topDialog.querySelector('.cl-dialog-close');
   if (closeIcon && isVisible(closeIcon)) {
@@ -876,6 +891,12 @@ function popupWatcherInitScript() {
   };
   const isLoginOverlayVisible = () => isVisible(document.querySelector('#btnLgn'))
     || isVisible(document.querySelector('input[name="certPassword"]'));
+  // (버그 수정) 근무상황신청/출장신청/기안문 작성 같은 실제 업무 화면도 안내 팝업과 같은
+  // cl-dialog/role="dialog" 래퍼를 쓴다(실측 확인: "신청" 버튼으로 막 연 신청서 창이 launchService
+  // 완료 직후 이 감시에 의해 곧바로 닫혀버림). 순수 안내 팝업은 텍스트/체크박스뿐이지만 실제
+  // 업무 화면은 반드시 input/select/textarea를 포함하므로, 이를 가진 다이얼로그는 팝업으로
+  // 취급하지 않는다.
+  const hasFormInputs = (el) => !!el.querySelector('input:not([type="checkbox"]), select, textarea');
   const looksLikePopup = () => {
     // (버그 수정) 인증서 로그인 화면(#btnLgn/certPassword)이 떠 있는 동안은 절대 팝업으로
     // 취급하지 않는다 - 실측 확인: 비밀번호 타이핑 도중 이 감시가 로그인 모달의 "확인" 버튼을
@@ -883,12 +904,16 @@ function popupWatcherInitScript() {
     // 사이트의 반복 시도 제한(보안 잠금) 경고까지 유발한 것으로 보인다. completeCertLoginIfNeeded가
     // 이 화면을 전담해서 처리하므로 여기서는 완전히 손을 뗀다.
     if (isLoginOverlayVisible()) return false;
-    if ([...document.querySelectorAll('.cl-dialog, [role="dialog"]')].some(isVisible)) return true;
+    const dialogs = [...document.querySelectorAll('.cl-dialog, [role="dialog"]')].filter(isVisible);
+    if (dialogs.some((d) => !hasFormInputs(d))) return true;
     const texts = ['닫기', '확인', '1주일동안 열지 않기', '오늘 하루 보지 않기', '오늘 하루 이상 열지 않기'];
     return [...document.querySelectorAll('*')].some((e) => {
       if (e.children.length > 2) return false; // 버튼/라벨처럼 짧고 구체적인 요소만
       const t = (e.textContent || '').trim();
-      return t && texts.includes(t) && isVisible(e);
+      if (!t || !texts.includes(t) || !isVisible(e)) return false;
+      const container = e.closest('.cl-dialog, [role="dialog"], form');
+      if (container && hasFormInputs(container)) return false; // 업무 화면 안의 버튼은 건드리지 않는다
+      return true;
     });
   };
   // 뮤테이션이 짧은 시간에 여러 번 몰려와도(예: 화면 전체가 다시 그려질 때) 한 번만 알리도록
