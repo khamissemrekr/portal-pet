@@ -715,10 +715,19 @@ const POPUP_CLOSE_BUTTON_CANDIDATES = ['닫기', '확인'];
 // (evaluate(fn, arg) 형태로 arg만 별도 전달, fn 안에서 필요한 건 전부 자체 완결적으로 정의).
 function findVisibleLeafCenterInPage({ candidates, closestSelector }) {
   const isVisible = (e) => {
+    if (!e) return false;
     const r = e.getBoundingClientRect();
     const s = getComputedStyle(e);
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   };
+  // (버그 수정) 인증서 로그인 화면(#btnLgn/certPassword)이 실제로 보이는 상태면 절대 아무 것도
+  // 건드리지 않는다 - completeCertLoginIfNeeded가 그 화면을 전담해서 처리 중이며, 여기서
+  // "확인" 텍스트만 보고 로그인 모달의 확인 버튼을 팝업 닫기로 오인해 클릭하면(실측 확인:
+  // 비밀번호 타이핑 도중에 이 로직이 끼어들어 로그인 제출을 오염시킴) 로그인이 깨지고 심하면
+  // 사이트 자체의 반복 시도 제한(보안 잠금)까지 유발할 수 있다.
+  if (isVisible(document.querySelector('#btnLgn')) || isVisible(document.querySelector('input[name="certPassword"]'))) {
+    return null;
+  }
   for (const text of candidates) {
     const xs = [...document.querySelectorAll('*')]
       .filter((e) => (e.textContent || '').trim() === text && isVisible(e))
@@ -755,10 +764,17 @@ function findVisibleLeafCenterInPage({ candidates, closestSelector }) {
 // "닫기"/"확인" 텍스트 버튼을 쓴다.
 function findTopmostDialogCloseButtonInPage() {
   const isVisible = (e) => {
+    if (!e) return false;
     const r = e.getBoundingClientRect();
     const s = getComputedStyle(e);
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   };
+  // (버그 수정) 인증서 로그인 모달도 role="dialog" 래퍼를 쓰는 경우가 있어(실측: 비밀번호
+  // 타이핑 도중 이 함수가 그 모달을 "가장 위 다이얼로그"로 집어 안의 확인 버튼을 클릭해버림)
+  // completeCertLoginIfNeeded가 처리 중인 로그인 화면이면 여기서 완전히 손을 뗀다.
+  if (isVisible(document.querySelector('#btnLgn')) || isVisible(document.querySelector('input[name="certPassword"]'))) {
+    return null;
+  }
   const dialogs = [...document.querySelectorAll('.cl-dialog, [role="dialog"]')].filter(isVisible);
   if (!dialogs.length) return null;
 
@@ -853,11 +869,20 @@ const popupWatcherInstalled = new WeakSet();
 
 function popupWatcherInitScript() {
   const isVisible = (e) => {
+    if (!e) return false;
     const r = e.getBoundingClientRect();
     const s = getComputedStyle(e);
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   };
+  const isLoginOverlayVisible = () => isVisible(document.querySelector('#btnLgn'))
+    || isVisible(document.querySelector('input[name="certPassword"]'));
   const looksLikePopup = () => {
+    // (버그 수정) 인증서 로그인 화면(#btnLgn/certPassword)이 떠 있는 동안은 절대 팝업으로
+    // 취급하지 않는다 - 실측 확인: 비밀번호 타이핑 도중 이 감시가 로그인 모달의 "확인" 버튼을
+    // 공지 팝업 닫기로 오인해 반복 클릭했고, 이게 로그인 제출을 오염시켜 로그인이 깨지고
+    // 사이트의 반복 시도 제한(보안 잠금) 경고까지 유발한 것으로 보인다. completeCertLoginIfNeeded가
+    // 이 화면을 전담해서 처리하므로 여기서는 완전히 손을 뗀다.
+    if (isLoginOverlayVisible()) return false;
     if ([...document.querySelectorAll('.cl-dialog, [role="dialog"]')].some(isVisible)) return true;
     const texts = ['닫기', '확인', '1주일동안 열지 않기', '오늘 하루 보지 않기', '오늘 하루 이상 열지 않기'];
     return [...document.querySelectorAll('*')].some((e) => {
