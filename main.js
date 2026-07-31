@@ -3,7 +3,7 @@
 // 숨어 있다가 마우스를 올리면 튀어나오는 방식)와 시스템 트레이 UX를 참고해 새로 구현.
 // 코드/아트워크는 그대로 가져오지 않고, 우리 목적(원클릭 업무포털 접속)에 맞게 최소 구성으로 재작성.
 
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell, Notification } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
 const credentialStore = require('./engine/credentialStore');
@@ -360,6 +360,52 @@ function scheduleDashboardRefresh() {
   runDashboardRefresh(); // 켜자마자 한 번 바로 확인해서 배지를 채워둔다.
 }
 
+// ===== 배지 값이 늘어나면 OS 알림 =====
+// 렌더러의 DASHBOARD_BADGE_CONFIG와 같은 세 항목(나이스 미결/협조함, K-에듀파인 결재(긴급),
+// 교데통 내부승인(처리))을 여기서도 추적한다. "늘어났을 때만" 알린다 - 줄어들거나 그대로면
+// 이미 처리됐거나 변화가 없다는 뜻이라 알릴 필요가 없다.
+const DASHBOARD_NOTIFY_CONFIG = [
+  { bucket: 'nice', label: '미결/협조함', title: '나이스 결재' },
+  { bucket: 'edufine', label: '결재(긴급)', title: 'K-에듀파인 공문 결재' },
+  { bucket: 'edmgr', label: '내부승인(처리)', title: '교데통 내부승인 처리' },
+];
+// 직전 확인 결과(checkPortalDashboard의 { nice, edufine, edmgr } 형태) - 다음 확인 때 비교 기준.
+let lastDashboardCounts = null;
+
+function parseLeadingCount(rawValue) {
+  const match = String(rawValue ?? '').match(/^[0-9]+/);
+  return match ? parseInt(match[0], 10) : null;
+}
+
+/**
+ * (수정) 앱을 막 켰을 때(lastDashboardCounts가 아직 없을 때) 바로 비교해버리면, 그 전부터
+ * 밀려 있던 건까지 전부 "늘어난 것"으로 오인해 알림이 우르르 뜬다 - 그래서 최초 1회는
+ * 기준값만 저장하고 알림 없이 넘어간다.
+ */
+function notifyDashboardIncreases(result) {
+  if (!result) return;
+  if (!lastDashboardCounts) {
+    lastDashboardCounts = result;
+    return;
+  }
+  for (const { bucket, label, title } of DASHBOARD_NOTIFY_CONFIG) {
+    const prevRaw = lastDashboardCounts[bucket]?.[label];
+    const currRaw = result[bucket]?.[label];
+    const prev = parseLeadingCount(prevRaw);
+    const curr = parseLeadingCount(currRaw);
+    if (prev != null && curr != null && curr > prev) {
+      console.log(`[PortalPet] ${title} "${label}" 증가 감지: ${prevRaw} -> ${currRaw}`);
+      if (Notification.isSupported()) {
+        new Notification({
+          title: `${title} - 새로운 건이 있습니다`,
+          body: `${label}: ${prevRaw ?? '?'} → ${currRaw}`,
+        }).show();
+      }
+    }
+  }
+  lastDashboardCounts = result;
+}
+
 async function runDashboardRefresh() {
   const config = credentialStore.loadConfig();
   if (!(config.subdomain || config.region)) return;
@@ -371,6 +417,7 @@ async function runDashboardRefresh() {
   try {
     console.log('[PortalPet] 결재 현황 자동 확인 실행...');
     const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+    notifyDashboardIncreases(result);
     if (win && !win.isDestroyed()) win.webContents.send('portal-dashboard-updated', result);
   } catch (err) {
     console.error('[PortalPet] 결재 현황 자동 확인 실패:', err);
@@ -392,6 +439,7 @@ ipcMain.handle('refresh-portal-dashboard', async () => {
     : null;
   try {
     const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+    notifyDashboardIncreases(result); // 수동 새로고침도 정기 확인과 동일하게 증가분 알림 대상에 포함
     return result;
   } catch (err) {
     console.error('[PortalPet] refresh-portal-dashboard failed:', err);
