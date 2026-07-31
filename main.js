@@ -88,12 +88,22 @@ function ensureWindow() {
   }
 }
 
+// 메뉴(펼침 패널) 자동 닫힘 타이머 - 설정에서 켠 경우, 펼친 뒤 지정한 시간이 지나면 자동으로
+// 접는다. 사용자가 그 전에 직접 접거나 다시 펼치면 이전 타이머는 지우고 새로 잡는다.
+let panelAutoCloseTimer = null;
+function clearPanelAutoCloseTimer() {
+  if (panelAutoCloseTimer) clearTimeout(panelAutoCloseTimer);
+  panelAutoCloseTimer = null;
+}
+
 function togglePanel() {
   ensureWindow();
   isExpanded = !isExpanded;
   const bounds = win.getBounds();
   const display = screen.getPrimaryDisplay();
   const { width: sw, height: sh } = display.workAreaSize;
+
+  clearPanelAutoCloseTimer();
 
   if (isExpanded) {
     const newWidth = PET_SIZE + PANEL_WIDTH;
@@ -104,6 +114,14 @@ function togglePanel() {
       width: newWidth,
       height: newHeight,
     });
+    const config = credentialStore.loadConfig();
+    if (config.panelAutoCloseEnabled) {
+      const ms = Math.max(1, Number(config.panelAutoCloseSeconds) || 10) * 1000;
+      panelAutoCloseTimer = setTimeout(() => {
+        panelAutoCloseTimer = null;
+        if (isExpanded) togglePanel(); // 그 사이 사용자가 직접 접었으면(isExpanded=false) 아무것도 안 함
+      }, ms);
+    }
   } else {
     win.setBounds({ ...bounds, width: PET_SIZE, height: PET_SIZE });
   }
@@ -391,6 +409,7 @@ function sanitizeCustomLinks(customLinks) {
 ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
+  panelAutoCloseEnabled, panelAutoCloseSeconds,
 }) => {
   const previous = credentialStore.loadConfig();
   // 비밀번호 칸을 비워두고 저장하면(지역/프로필만 바꾸는 경우) 기존 저장값을 그대로 둔다.
@@ -410,6 +429,12 @@ ipcMain.handle('save-setup', (_evt, {
     ? Math.max(1, Math.min(120, Math.round(parsedMinutes)))
     : (previous.dashboardRefreshMinutes ?? 5);
 
+  // 메뉴 자동 닫힘 시간(초) - 너무 짧으면(예: 0, 음수) 펼치자마자 닫혀버리니 최소 1초로 막는다.
+  const parsedAutoCloseSeconds = Number(panelAutoCloseSeconds);
+  const safeAutoCloseSeconds = Number.isFinite(parsedAutoCloseSeconds)
+    ? Math.max(1, Math.min(600, Math.round(parsedAutoCloseSeconds)))
+    : (previous.panelAutoCloseSeconds ?? 10);
+
   const config = {
     region,
     subdomain: subdomain || REGIONS[region] || '',
@@ -423,6 +448,8 @@ ipcMain.handle('save-setup', (_evt, {
     panelOpacity: safeOpacity, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
     dashboardAutoRefresh: dashboardAutoRefresh !== false, // 기본값 true - 나이스/K-에듀파인 결재 현황 자동 확인
     dashboardRefreshMinutes: safeMinutes, // 기본값 5분
+    panelAutoCloseEnabled: !!panelAutoCloseEnabled, // 기본값 false - 메뉴를 일정 시간 뒤 자동으로 접을지
+    panelAutoCloseSeconds: safeAutoCloseSeconds, // 자동으로 접히기까지 걸리는 시간(초)
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();

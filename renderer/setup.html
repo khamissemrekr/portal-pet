@@ -94,6 +94,15 @@
     단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
   </div>
 
+  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+    <input id="panelAutoCloseEnabled" type="checkbox" style="width:auto; margin-top:0;" />
+    <span>메뉴 자동 닫힘</span>
+  </label>
+  <label id="panelAutoCloseSecondsWrap">닫히기까지 걸리는 시간 (초)
+    <input id="panelAutoCloseSeconds" type="number" min="1" max="600" step="1" value="10" />
+  </label>
+  <div class="note">켜면 캐릭터를 클릭해 펼친 메뉴가 지정한 시간 뒤 자동으로 접힙니다.</div>
+
   <label>메뉴 투명도 (<span id="opacityValue">92</span>%)
     <input id="panelOpacity" type="range" min="20" max="100" step="1" value="92" />
   </label>
@@ -146,6 +155,9 @@
     const dashboardAutoRefreshInput = document.getElementById('dashboardAutoRefresh');
     const dashboardMinutesInput = document.getElementById('dashboardRefreshMinutes');
     const dashboardMinutesWrap = document.getElementById('dashboardMinutesWrap');
+    const panelAutoCloseEnabledInput = document.getElementById('panelAutoCloseEnabled');
+    const panelAutoCloseSecondsInput = document.getElementById('panelAutoCloseSeconds');
+    const panelAutoCloseSecondsWrap = document.getElementById('panelAutoCloseSecondsWrap');
 
     regionSelect.addEventListener('change', () => {
       customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
@@ -154,6 +166,13 @@
     opacityInput.addEventListener('input', () => {
       opacityValueLabel.textContent = opacityInput.value;
     });
+
+    function syncPanelAutoCloseSecondsEnabled() {
+      const on = panelAutoCloseEnabledInput.checked;
+      panelAutoCloseSecondsInput.disabled = !on;
+      panelAutoCloseSecondsWrap.style.opacity = on ? '1' : '0.5';
+    }
+    panelAutoCloseEnabledInput.addEventListener('change', syncPanelAutoCloseSecondsEnabled);
 
     function syncDashboardMinutesEnabled() {
       const on = dashboardAutoRefreshInput.checked;
@@ -261,6 +280,9 @@
       dashboardAutoRefreshInput.checked = config?.dashboardAutoRefresh !== false;
       dashboardMinutesInput.value = String(config?.dashboardRefreshMinutes ?? 5);
       syncDashboardMinutesEnabled();
+      panelAutoCloseEnabledInput.checked = !!config?.panelAutoCloseEnabled;
+      panelAutoCloseSecondsInput.value = String(config?.panelAutoCloseSeconds ?? 10);
+      syncPanelAutoCloseSecondsEnabled();
       customLinks = Array.isArray(config?.customLinks) ? config.customLinks.map((l) => ({ ...l })) : [];
       renderCustomLinksList();
     }
@@ -293,9 +315,12 @@
       const panelOpacity = Number(opacityInput.value) / 100;
       const dashboardAutoRefresh = dashboardAutoRefreshInput.checked;
       const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
+      const panelAutoCloseEnabled = panelAutoCloseEnabledInput.checked;
+      const panelAutoCloseSeconds = Number(panelAutoCloseSecondsInput.value) || 10;
       await window.portalPet.saveSetup({
         region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
         customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
+        panelAutoCloseEnabled, panelAutoCloseSeconds,
       });
     });
   </script>
