@@ -744,14 +744,22 @@ function findVisibleLeafCenterInPage({ candidates, closestSelector }) {
   const hasFormInputs = (el) => [...el.querySelectorAll(
     'input:not([type="checkbox"]):not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])'
   )].some(isVisible);
+  // (버그 수정 4) 실측 확인: 결재(승인) 화면처럼 "확인"/"닫기" 텍스트를 가진, 팝업이 아니라
+  // 항상 떠 있는 정상 버튼이 있으면 이 함수가 매번 그 버튼을 다시 찾아내 무한히 반복 클릭했다
+  // ("closed a popup" 로그가 수백 번 연속 - 실제 결재/승인 화면의 버튼을 계속 눌러버릴 수
+  // 있는 위험한 상황). 한 번 클릭 시도한 노드에는 표식을 남겨 같은 노드를 다시는 클릭하지
+  // 않는다 - 진짜 팝업이면 클릭 후 사라지므로 표식이 남을 일이 없고, 팝업이 아닌 상시 버튼이면
+  // 표식 덕분에 더는 안 건드린다.
+  const TRIED_ATTR = 'data-pp-tried';
   for (const text of candidates) {
     const xs = [...document.querySelectorAll('*')]
-      .filter((e) => (e.textContent || '').trim() === text && isVisible(e))
+      .filter((e) => (e.textContent || '').trim() === text && isVisible(e) && !e.hasAttribute(TRIED_ATTR))
       .sort((a, b) => a.children.length - b.children.length);
     if (xs.length) {
       const target = xs[0].closest(closestSelector) || xs[0];
       const container = target.closest('.cl-dialog, [role="dialog"], form');
       if (container && hasFormInputs(container)) continue;
+      target.setAttribute(TRIED_ATTR, '1');
       const r = target.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }
@@ -825,19 +833,26 @@ function findTopmostDialogCloseButtonInPage() {
   )].some(isVisible);
   if (hasFormInputs(topDialog)) return null;
 
+  // (버그 수정 4) 같은 다이얼로그의 닫기 아이콘/버튼을 계속 다시 찾아 무한 반복 클릭하는 것을
+  // 막기 위해, 한 번 클릭 시도한 노드에는 표식을 남기고 다음부터는 건너뛴다(진짜 팝업이면
+  // 클릭 후 사라지므로 표식이 남을 일이 없다).
+  const TRIED_ATTR = 'data-pp-tried';
+
   const closeIcon = topDialog.querySelector('.cl-dialog-close');
-  if (closeIcon && isVisible(closeIcon)) {
+  if (closeIcon && isVisible(closeIcon) && !closeIcon.hasAttribute(TRIED_ATTR)) {
+    closeIcon.setAttribute(TRIED_ATTR, '1');
     const r = closeIcon.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   }
 
   const texts = ['닫기', '확인'];
   const candidates = [...topDialog.querySelectorAll('*')]
-    .filter((e) => isVisible(e) && texts.includes((e.textContent || '').trim()))
+    .filter((e) => isVisible(e) && texts.includes((e.textContent || '').trim()) && !e.hasAttribute(TRIED_ATTR))
     .sort((a, b) => a.children.length - b.children.length);
   const leaf = candidates[0];
   if (!leaf) return null;
   const target = leaf.closest('button,a,[role="button"]') || leaf;
+  target.setAttribute(TRIED_ATTR, '1');
   const r = target.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
