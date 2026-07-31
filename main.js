@@ -399,7 +399,7 @@ ipcMain.handle('refresh-portal-dashboard', async () => {
   }
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
   createTray();
   startDialogSuppressor(); // K-에듀파인 WXSClient의 "웹 페이지 메시지" 확인창 자동 취소
@@ -408,7 +408,16 @@ app.whenReady().then(() => {
   if (!config.encryptedPasswordBase64) {
     openSetupWindow(); // 최초 실행 시 바로 설정 창 띄우기
   } else {
-    runStartupAutoLaunch(); // 설정돼 있으면 메신저/일정 자동 실행 체크 여부 확인 후 진행
+    // (수정) 예전엔 이걸 await 없이 던져두고 바로 scheduleDashboardRefresh()를 불렀는데,
+    // scheduleDashboardRefresh 쪽의 "즉시 1회 확인"(runDashboardRefresh)이 taskQueue에 먼저
+    // 등록되는 경우가 있어(둘 다 첫 await 이전엔 동기 실행이라 타이밍에 따라 순서가 갈림 -
+    // 실측 확인: 사용자 콘솔 로그) 결재 현황 확인이 먼저 포털 홈 탭을 차지해버리고, 뒤이어
+    // 실행되는 메신저(gone_msg)가 "이미 다른 화면(포털 홈)이 사용 중"으로 판단돼 새 탭에서
+    // 열리는 문제가 있었다(사용자 요청: "메신저와 일정 탭은 현재 창에서 열리도록"). 메신저/일정
+    // 자동 실행을 먼저 완전히 끝낸 뒤에 결재 현황 확인을 시작하도록 순서를 명시적으로 고정한다 -
+    // 그러면 아직 아무 탭도 없는 상태에서 메신저가 먼저 원래 탭을 그대로 쓰고, 일정도 같은
+    // G-ONE 그룹이라 그 탭을 이어 쓴다. 결재 현황 확인은 그 다음에 필요하면 별도 탭을 연다.
+    await runStartupAutoLaunch();
   }
   scheduleDashboardRefresh();
 });
