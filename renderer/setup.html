@@ -92,6 +92,18 @@
   </label>
   <div class="note">캐릭터를 클릭했을 때 펼쳐지는 메뉴 배경의 투명도입니다. 낮출수록 더 투명해집니다.</div>
 
+  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+    <input id="dashboardAutoRefresh" type="checkbox" checked style="width:auto; margin-top:0;" />
+    <span>나이스 결재 / 공문 결재 건수 자동 확인</span>
+  </label>
+  <label id="dashboardMinutesWrap">확인 주기 (분)
+    <input id="dashboardRefreshMinutes" type="number" min="1" max="120" step="1" value="5" />
+  </label>
+  <div class="note">
+    "나이스 결재" 버튼에는 미결/협조함 건수, "공문 결재" 버튼에는 K-에듀파인 결재(긴급) 건수가
+    배지로 표시됩니다. 지정한 주기마다 백그라운드에서 자동으로 확인합니다.
+  </div>
+
   <label style="margin-top:16px;">자주 가는 사이트</label>
   <div id="customLinksList"></div>
   <div style="display:flex; gap:6px; margin-top:6px;">
@@ -123,6 +135,9 @@
     const browserChannelSelect = document.getElementById('browserChannel');
     const opacityInput = document.getElementById('panelOpacity');
     const opacityValueLabel = document.getElementById('opacityValue');
+    const dashboardAutoRefreshInput = document.getElementById('dashboardAutoRefresh');
+    const dashboardMinutesInput = document.getElementById('dashboardRefreshMinutes');
+    const dashboardMinutesWrap = document.getElementById('dashboardMinutesWrap');
 
     regionSelect.addEventListener('change', () => {
       customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
@@ -131,6 +146,13 @@
     opacityInput.addEventListener('input', () => {
       opacityValueLabel.textContent = opacityInput.value;
     });
+
+    function syncDashboardMinutesEnabled() {
+      const on = dashboardAutoRefreshInput.checked;
+      dashboardMinutesInput.disabled = !on;
+      dashboardMinutesWrap.style.opacity = on ? '1' : '0.5';
+    }
+    dashboardAutoRefreshInput.addEventListener('change', syncDashboardMinutesEnabled);
 
     // 브라우저(크롬/엣지)를 바꾸면 그 브라우저에 설치된 프로필 목록으로 다시 불러온다.
     // selectedValue를 넘기면(초기 로드 시 저장된 값 복원용) 목록에 있을 때 그 값으로 맞춰준다 -
@@ -222,6 +244,9 @@
       document.getElementById('autoLogin').checked = config?.autoLogin !== false;
       document.getElementById('autoLaunchMessenger').checked = !!config?.autoLaunchMessenger;
       document.getElementById('autoLaunchSchedule').checked = !!config?.autoLaunchSchedule;
+      dashboardAutoRefreshInput.checked = config?.dashboardAutoRefresh !== false;
+      dashboardMinutesInput.value = String(config?.dashboardRefreshMinutes ?? 5);
+      syncDashboardMinutesEnabled();
       customLinks = Array.isArray(config?.customLinks) ? config.customLinks.map((l) => ({ ...l })) : [];
       renderCustomLinksList();
     }
@@ -252,7 +277,12 @@
       const autoLaunchMessenger = document.getElementById('autoLaunchMessenger').checked;
       const autoLaunchSchedule = document.getElementById('autoLaunchSchedule').checked;
       const panelOpacity = Number(opacityInput.value) / 100;
-      await window.portalPet.saveSetup({ region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin, panelOpacity });
+      const dashboardAutoRefresh = dashboardAutoRefreshInput.checked;
+      const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
+      await window.portalPet.saveSetup({
+        region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
+        customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
+      });
     });
   </script>
 </body>

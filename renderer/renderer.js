@@ -16,7 +16,6 @@ const COLUMNS = [
       { key: 'giahn', label: '기안문 작성' },
       { key: 'pumui', label: '품의 작성' },
       { key: 'edufine_approval', label: '공문 결재' },
-      // { key: 'edufine_check', label: '결재 건수 확인' }, // 임시로 화면에서 숨김(다른 수정 먼저 진행) - 코드/커밋은 유지, 이 줄만 주석 해제하면 복원됨
     ],
   },
   {
@@ -79,10 +78,21 @@ function setButtonsDisabled(disabled) {
   servicesEl.querySelectorAll('.service-btn').forEach((b) => { b.disabled = disabled; });
 }
 
+// 나이스 결재/공문 결재 버튼에 붙는 자동 확인 배지(주기적으로 main.js가 보내주는 데이터로 갱신).
+// 버튼 element가 만들어질 때 key -> 배지 span을 기록해뒀다가, updateDashboardBadges에서 찾아 쓴다.
+const dashboardBadgeEls = {};
+const DASHBOARD_BADGE_KEYS = { nice_approval: '미결/협조함', edufine_approval: '결재(긴급)' };
+
 function makeButton(key, label, isHeader) {
   const btn = document.createElement('button');
   btn.className = isHeader ? 'service-btn header' : 'service-btn';
   btn.textContent = label;
+  if (DASHBOARD_BADGE_KEYS[key]) {
+    const badge = document.createElement('span');
+    badge.className = 'dashboard-badge hidden';
+    btn.appendChild(badge);
+    dashboardBadgeEls[key] = badge;
+  }
   btn.addEventListener('click', async () => {
     if (launching) return;
     let region = regionSelect.value;
@@ -112,59 +122,32 @@ function makeButton(key, label, isHeader) {
   return btn;
 }
 
-// ===== K-에듀파인 결재 대기 건수 확인 =====
-// launchService(브라우저 화면 전환)와 달리, 이미 있던 화면을 그대로 둔 채 상단 상태바의
-// "결재(긴급) N(N)" 배지만 읽어와서 캐릭터 위에 배지로 표시한다. 버튼 클릭으로만 동작하고
-// 백그라운드에서 자동으로 반복 확인하지는 않는다(그러면 자동화용 크롬 창이 주기적으로 떠서
-// 작업 중인 화면을 방해할 수 있어서 - 은애님과 상의해서 수동 확인 방식으로 결정).
-const approvalBadgeEl = document.getElementById('approval-badge');
-function updateApprovalBadge(total, urgent) {
-  if (!approvalBadgeEl) return;
-  if (total > 0) {
-    approvalBadgeEl.textContent = total > 99 ? '99+' : String(total);
-    approvalBadgeEl.title = `결재 대기 ${total}건${urgent > 0 ? ` (긴급 ${urgent}건)` : ''}`;
-    approvalBadgeEl.classList.remove('hidden');
-  } else {
-    approvalBadgeEl.title = '결재 대기 문서 없음';
-    approvalBadgeEl.classList.add('hidden');
+// ===== 나이스 결재 / 공문 결재 자동 확인 배지 =====
+// main.js가 사용자가 지정한 주기(기본 5분)마다 포털 메인에서 읽어온 값을 IPC로 보내주면,
+// 여기서 해당 버튼의 배지를 갱신한다. 예전(결재 건수 확인 버튼)과 달리 클릭 없이 자동으로 채워짐.
+function updateDashboardBadges(data) {
+  if (!data || !data.ok) return; // 실패하면 마지막으로 성공했던 값을 그대로 둔다.
+  for (const [key, label] of Object.entries(DASHBOARD_BADGE_KEYS)) {
+    const system = key === 'nice_approval' ? data.nice : data.edufine;
+    const rawValue = system ? system[label] : null;
+    setDashboardBadge(key, rawValue);
   }
 }
 
-function makeApprovalCheckButton(label) {
-  const btn = document.createElement('button');
-  btn.className = 'service-btn';
-  btn.textContent = label;
-  btn.addEventListener('click', async () => {
-    if (launching) return;
-    launching = true;
-    setButtonsDisabled(true);
-    statusDot.className = 'idle';
-    hideError();
-    setPose('working');
-    try {
-      const result = await window.portalPet.checkEdufineApprovals();
-      if (result.ok) {
-        statusDot.className = 'connected';
-        setPose('success', { autoResetMs: 2000 });
-        updateApprovalBadge(result.total, result.urgent);
-      } else {
-        statusDot.className = 'error';
-        setPose('error', { autoResetMs: 2500 });
-        showError(result.error === 'not-configured'
-          ? '먼저 설정에서 지역/비밀번호를 저장해 주세요.'
-          : (result.error || '결재 건수를 확인하지 못했습니다.'));
-      }
-    } catch (e) {
-      statusDot.className = 'error';
-      setPose('error', { autoResetMs: 2500 });
-      showError(e?.message || '결재 건수를 확인하지 못했습니다.');
-    } finally {
-      launching = false;
-      setButtonsDisabled(false);
-    }
-  });
-  return btn;
+function setDashboardBadge(key, rawValue) {
+  const badge = dashboardBadgeEls[key];
+  if (!badge) return;
+  const leadingNum = rawValue != null ? parseInt(String(rawValue).match(/^[0-9]+/)?.[0] || '0', 10) : 0;
+  if (rawValue == null || leadingNum <= 0) {
+    badge.classList.add('hidden');
+    return;
+  }
+  badge.textContent = String(rawValue).length > 6 ? String(leadingNum) : String(rawValue); // 예: "0(0)"은 그대로, 너무 길면 숫자만
+  badge.title = `${DASHBOARD_BADGE_KEYS[key]} ${rawValue}`;
+  badge.classList.remove('hidden');
 }
+
+window.portalPet.onPortalDashboardUpdated(updateDashboardBadges);
 
 // ===== 업무포털 메인(예: https://goe.eduptl.kr/bpm_man_mn00_001.do) - 세 시스템 메뉴 위에 별도로 =====
 document.getElementById('portal-home-wrap').appendChild(makeButton('portal_home', '업무포털 메인', true));
@@ -174,9 +157,7 @@ COLUMNS.forEach(({ key, label, subs }) => {
   col.className = 'service-col';
   col.appendChild(makeButton(key, label, true));
   subs.forEach(({ key: subKey, label: subLabel }) => {
-    col.appendChild(
-      subKey === 'edufine_check' ? makeApprovalCheckButton(subLabel) : makeButton(subKey, subLabel, false)
-    );
+    col.appendChild(makeButton(subKey, subLabel, false));
   });
   servicesEl.appendChild(col);
 });

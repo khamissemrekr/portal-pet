@@ -186,30 +186,6 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
   }
 });
 
-// ===== K-에듀파인 결재 건수 확인: 화면 전환 없이(이미 그 화면이면 그대로) 상단 배지만 읽음 =====
-ipcMain.handle('check-edufine-approvals', async () => {
-  const config = credentialStore.loadConfig();
-  const autoLogin = config.autoLogin !== false;
-  if (autoLogin && !config.encryptedPasswordBase64) {
-    return { ok: false, error: 'not-configured' };
-  }
-  if (!(config.subdomain || config.region)) {
-    return { ok: false, error: 'not-configured' };
-  }
-  const subdomain = REGIONS[config.region] || config.subdomain;
-  const password = (autoLogin && config.encryptedPasswordBase64)
-    ? credentialStore.decryptPassword(config.encryptedPasswordBase64)
-    : null;
-
-  try {
-    const result = await loginEngine.checkEdufineApprovalCount(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
-    return result;
-  } catch (err) {
-    console.error('[PortalPet] check-edufine-approvals failed:', err);
-    return { ok: false, error: err.message || String(err) };
-  }
-});
-
 // channel: 'chrome' | 'msedge' - 설정 창에서 브라우저를 바꾸면 그 브라우저의 프로필 목록을 다시 읽어온다.
 ipcMain.handle('list-browser-profiles', (_evt, channel) => listBrowserProfiles(channel || 'chrome'));
 ipcMain.handle('get-config', () => credentialStore.loadConfig());
@@ -250,7 +226,10 @@ function sanitizeCustomLinks(customLinks) {
     .map((l) => ({ label: l.label, url: /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}` }));
 }
 
-ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule, customLinks, autoLogin, panelOpacity }) => {
+ipcMain.handle('save-setup', (_evt, {
+  region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
+  customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
+}) => {
   const previous = credentialStore.loadConfig();
   // 비밀번호 칸을 비워두고 저장하면(지역/프로필만 바꾸는 경우) 기존 저장값을 그대로 둔다.
   const encryptedPasswordBase64 = password
@@ -263,6 +242,12 @@ ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfil
     ? Math.min(1, Math.max(0.2, parsedOpacity))
     : (previous.panelOpacity ?? 0.92);
 
+  // 확인 주기(분) - 너무 짧으면(예: 0, 음수) 매크로처럼 계속 브라우저를 띄우게 되니 최소 1분으로 막는다.
+  const parsedMinutes = Number(dashboardRefreshMinutes);
+  const safeMinutes = Number.isFinite(parsedMinutes)
+    ? Math.max(1, Math.min(120, Math.round(parsedMinutes)))
+    : (previous.dashboardRefreshMinutes ?? 5);
+
   const config = {
     region,
     subdomain: subdomain || REGIONS[region] || '',
@@ -274,11 +259,14 @@ ipcMain.handle('save-setup', (_evt, { region, subdomain, password, browserProfil
     customLinks: sanitizeCustomLinks(customLinks),
     autoLogin: autoLogin !== false, // 기본값 true - 명시적으로 false를 보낼 때만 수동 입력 모드
     panelOpacity: safeOpacity, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
+    dashboardAutoRefresh: dashboardAutoRefresh !== false, // 기본값 true - 나이스/K-에듀파인 결재 현황 자동 확인
+    dashboardRefreshMinutes: safeMinutes, // 기본값 5분
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();
   // 펫 패널이 자주 가는 사이트 목록 등 바뀐 설정을 바로 반영하도록 알림.
   if (win && !win.isDestroyed()) win.webContents.send('config-updated');
+  scheduleDashboardRefresh(); // 주기/on-off가 바뀌었을 수 있으니 즉시 재적용
   return { ok: true };
 });
 
@@ -347,6 +335,48 @@ async function runStartupAutoLaunch() {
   }
 }
 
+// ===== 나이스 미결/협조함 · K-에듀파인 결재(긴급) 자동 확인(배지) =====
+// 업무포털 메인 화면 하나에서 두 수치를 동시에 읽어와(loginEngine.checkPortalDashboard) 렌더러에
+// 보내면, 렌더러가 "나이스 결재"/"공문 결재" 버튼 위에 배지로 표시한다. 사용자가 지정한 주기
+// (기본 5분)마다 반복 - 예전엔 사용자가 직접 버튼을 눌러야 했는데(수동), 이제 자동으로 바뀐다.
+let dashboardTimer = null;
+
+function scheduleDashboardRefresh() {
+  if (dashboardTimer) { clearInterval(dashboardTimer); dashboardTimer = null; }
+
+  const config = credentialStore.loadConfig();
+  if (config.dashboardAutoRefresh === false) {
+    console.log('[PortalPet] 결재 현황 자동 확인 꺼짐 - 스케줄 안 함');
+    return;
+  }
+  if (!(config.subdomain || config.region)) return;
+  // 자동 로그인이 꺼져 있으면(수동 입력 모드) 백그라운드에서 조용히 인증서 창을 띄워놓고 사용자
+  // 입력을 기다리는 꼴이 되므로, 자동 로그인이 켜져 있고 비밀번호가 저장돼 있을 때만 스케줄한다.
+  if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
+
+  const minutes = Math.max(1, Number(config.dashboardRefreshMinutes) || 5);
+  console.log(`[PortalPet] 결재 현황 자동 확인 스케줄 설정: ${minutes}분마다`);
+  dashboardTimer = setInterval(runDashboardRefresh, minutes * 60 * 1000);
+  runDashboardRefresh(); // 켜자마자 한 번 바로 확인해서 배지를 채워둔다.
+}
+
+async function runDashboardRefresh() {
+  const config = credentialStore.loadConfig();
+  if (!(config.subdomain || config.region)) return;
+  if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
+
+  const subdomain = REGIONS[config.region] || config.subdomain;
+  const password = credentialStore.decryptPassword(config.encryptedPasswordBase64);
+
+  try {
+    console.log('[PortalPet] 결재 현황 자동 확인 실행...');
+    const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+    if (win && !win.isDestroyed()) win.webContents.send('portal-dashboard-updated', result);
+  } catch (err) {
+    console.error('[PortalPet] 결재 현황 자동 확인 실패:', err);
+  }
+}
+
 app.whenReady().then(() => {
   createWindow();
   createTray();
@@ -358,6 +388,7 @@ app.whenReady().then(() => {
   } else {
     runStartupAutoLaunch(); // 설정돼 있으면 메신저/일정 자동 실행 체크 여부 확인 후 진행
   }
+  scheduleDashboardRefresh();
 });
 
 app.on('window-all-closed', () => {
@@ -366,4 +397,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   stopDialogSuppressor();
+  if (dashboardTimer) clearInterval(dashboardTimer);
 });

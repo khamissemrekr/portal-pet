@@ -19,12 +19,14 @@ function loadConfig() {
       autoLogin: true, // 기본값: 비밀번호 저장해서 자동 로그인
       browserChannel: 'chrome', // 기본값: 크롬 사용 ('chrome' | 'msedge')
       panelOpacity: 0.92, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
+      dashboardAutoRefresh: true, // 나이스 미결/협조함, K-에듀파인 결재(긴급) 자동 확인
+      dashboardRefreshMinutes: 5, // 확인 주기(분)
     };
   }
   // 기존에 저장된 config.json에는 이 필드들이 없을 수 있어(과거 버전 사용자) 기본값으로 채워준다.
   return {
     autoLaunchMessenger: false, autoLaunchSchedule: false, customLinks: [], autoLogin: true,
-    browserChannel: 'chrome', panelOpacity: 0.92,
+    browserChannel: 'chrome', panelOpacity: 0.92, dashboardAutoRefresh: true, dashboardRefreshMinutes: 5,
     ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')),
   };
 }

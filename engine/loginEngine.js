@@ -1583,45 +1583,53 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
 }
 
 /**
- * K-에듀파인 화면 상단 상태바에는 "결재(긴급) N(N)" 형태의 배지가 있다(실측 확인: 스크린샷).
- * WebDRM이 우클릭/개발자도구(F12) UI는 막아도, Playwright는 CDP를 통해 페이지 컨텍스트에서
- * 직접 JS를 실행하므로(page.evaluate) DOM 텍스트를 읽는 것 자체는 막히지 않는다 - 기존의
- * 모든 자동 클릭(findAndMouseClick 등)도 같은 방식으로 이미 동작하고 있다. 정확한 선택자를
- * 알아내지 못했으므로, 화면에 보이는 요소 중 이 패턴과 정확히 일치하는(자식 요소가 가장 적은
- * = 가장 구체적인) 요소를 찾는 텍스트 기반 방식을 쓴다.
+ * 업무포털 메인 화면에는 "나이스 승인사항"(.aprvWork1/.aprvWork2), "K-에듀파인 전자결재 현황"
+ * (.keduBox1/.keduBox2), "교육행정데이터통합관리 알림 현황"(.edmgrBox1/.edmgrBox2) 위젯이 전부
+ * 같은 구조로 렌더링된다(실측 확인: 사용자가 제공한 포털 메인 HTML 소스) -
+ *   <ul class="XXX"><li><span class="num neisNum"><a>라벨</a></span><span class="num neisNum"><a>값</a></span></li>...</ul>
+ * 첫 번째 <a>가 라벨(예: "미결/협조함"), 두 번째 <a>가 값(예: "0" 또는 "0(0)")이다. 셋 다 같은
+ * 패턴이라 컨테이너 클래스만 바꿔가며 재사용할 수 있는 범용 파서로 만든다. K-에듀파인 결재
+ * 항목만 별도로 페이지를 옮겨다니지 않아도(예전 checkEdufineApprovalCount처럼 K-에듀파인 안까지
+ * 들어갈 필요 없이) 포털 메인 한 화면에서 나이스/K-에듀파인 수치를 동시에 읽을 수 있다.
  */
-function findEdufineApprovalCountInPage() {
-  const isVisible = (e) => {
-    const r = e.getBoundingClientRect();
-    const s = getComputedStyle(e);
-    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+function extractPortalDashboardCounts() {
+  const readSection = (selector) => {
+    const container = document.querySelector(selector);
+    if (!container) return {};
+    const map = {};
+    container.querySelectorAll('li').forEach((li) => {
+      const links = li.querySelectorAll('a');
+      if (links.length < 2) return;
+      const label = (links[0].textContent || '').trim();
+      const value = (links[1].textContent || '').trim();
+      if (label) map[label] = value;
+    });
+    return map;
   };
-  const regex = /결재\s*\(\s*긴급\s*\)\s*([0-9]+)\s*\(\s*([0-9]+)\s*\)/;
-  const matches = [...document.querySelectorAll('*')]
-    .filter(isVisible)
-    .map((e) => ({ e, text: (e.textContent || '').replace(/\s+/g, ' ').trim() }))
-    .filter(({ text }) => regex.test(text))
-    .sort((a, b) => a.e.children.length - b.e.children.length);
-  if (!matches.length) return null;
-  const m = matches[0].text.match(regex);
-  return { total: parseInt(m[1], 10), urgent: parseInt(m[2], 10) };
+  return {
+    nice: { ...readSection('.aprvWork1'), ...readSection('.aprvWork2') },
+    edufine: { ...readSection('.keduBox1'), ...readSection('.keduBox2') },
+    edmgr: { ...readSection('.edmgrBox1'), ...readSection('.edmgrBox2') },
+  };
 }
 
 /**
- * 결재 대기 문서 건수를 확인한다(캐릭터에 배지로 표시하기 위한 용도). launchService와 달리
- * 화면 전환 없이(이미 K-에듀파인에 있으면 그 화면 그대로) 상태바 배지만 읽고 끝낸다.
+ * 포털 메인의 나이스 승인사항(미결/협조함) / K-에듀파인 결재(긴급) 현황을 읽어온다. 캐릭터
+ * 배지 표시용으로, 사용자가 지정한 주기(기본 5분)마다 백그라운드에서 자동 호출된다 - 그래서
+ * launchService/checkEdufineApprovalCount(수동 버튼용)와 달리 끝나고 나서 창을 사용자 앞으로
+ * 가져오지 않는다(bringToFront 호출 안 함 - 작업 중인 화면을 방해하지 않기 위함).
  */
-async function checkEdufineApprovalCount(subdomain, password, browserProfile = null, browserChannel = 'chrome') {
-  console.log(`[PortalPet] checkEdufineApprovalCount(${subdomain}, ${browserChannel})`);
+async function checkPortalDashboard(subdomain, password, browserProfile = null, browserChannel = 'chrome') {
+  console.log(`[PortalPet] checkPortalDashboard(${subdomain}, ${browserChannel})`);
   const context = await getContext(browserProfile, subdomain, browserChannel);
-  const page = await getPage(context);
+  const openNewTab = await shouldOpenNewTabFor('portal_home', subdomain);
+  const page = openNewTab ? await openFreshTab(context) : await getPage(context);
   await closeExtraPages(context, page);
 
-  const alreadyOnEdufine = await isOnSystem(page, 'edufine', subdomain);
-  let target = page;
-  if (alreadyOnEdufine) {
-    console.log('[PortalPet] 이미 K-에듀파인에 있음 - 포털 홈 재방문 생략');
-    await closeAnyPopups(target);
+  const alreadyOnPortalHome = (await currentTabSystemGroup(page, subdomain)) === 'portal_home';
+  if (alreadyOnPortalHome) {
+    console.log('[PortalPet] 이미 포털 홈에 있음 - 재방문 생략');
+    await closeAnyPopups(page);
   } else {
     const portalUrl = buildPortalUrl(subdomain);
     console.log('[PortalPet] navigating to', portalUrl);
@@ -1635,23 +1643,29 @@ async function checkEdufineApprovalCount(subdomain, password, browserProfile = n
         '비밀번호나 인증서 상태를 확인한 뒤 다시 시도해 주세요.'
       );
     }
-    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
   }
 
-  await waitForEdufineReady(target);
-  await target.waitForTimeout(500); // 상단 상태바 렌더링 여유
-  const result = await target.evaluate(findEdufineApprovalCountInPage).catch((e) => {
-    console.log('[PortalPet] 결재 건수 배지 읽기 실패:', e.message);
+  // 나이스 승인사항은 neisLoader()가 페이지 로드 후 별도 AJAX(/bpm_man_mn00_003.do)로 채우는
+  // 방식이라(실측 확인) 곧바로 읽으면 빈 목록일 수 있다 - li가 생길 때까지 짧게 기다린다.
+  // K-에듀파인 결재 현황은 페이지에 이미 서버 렌더링돼 있는 것으로 보이지만, 혹시 몰라 같은
+  // 조건으로 한 번에 기다린다(있으면 즉시 통과, 없어도 최대 8초 후 타임아웃하고 계속 진행).
+  await page.waitForFunction(() => {
+    const aprv = document.querySelector('.aprvWork1');
+    return !!aprv && aprv.querySelectorAll('li').length > 0;
+  }, { timeout: 8000 }).catch(() => {
+    console.log('[PortalPet] 나이스 승인사항 로딩 대기 타임아웃(계속 진행) - 데이터가 비어있을 수 있음');
+  });
+
+  const result = await page.evaluate(extractPortalDashboardCounts).catch((e) => {
+    console.log('[PortalPet] 포털 현황 읽기 실패:', e.message);
     return null;
   });
 
-  await target.bringToFront();
-
   if (!result) {
-    throw new Error('결재 건수 배지를 화면에서 찾지 못했습니다. K-에듀파인 화면 구성이 바뀌었을 수 있습니다.');
+    throw new Error('포털 메인 화면에서 현황 데이터를 찾지 못했습니다. 화면 구성이 바뀌었을 수 있습니다.');
   }
-  console.log('[PortalPet] 결재 건수:', result);
-  return { ok: true, total: result.total, urgent: result.urgent };
+  console.log('[PortalPet] 포털 현황:', result);
+  return { ok: true, nice: result.nice, edufine: result.edufine, edmgr: result.edmgr };
 }
 
 /**
@@ -1673,5 +1687,5 @@ function runQueued(fn) {
 
 module.exports = {
   launchService: (...args) => runQueued(() => launchService(...args)),
-  checkEdufineApprovalCount: (...args) => runQueued(() => checkEdufineApprovalCount(...args)),
+  checkPortalDashboard: (...args) => runQueued(() => checkPortalDashboard(...args)),
 };
