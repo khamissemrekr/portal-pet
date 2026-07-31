@@ -545,20 +545,51 @@ async function closeExtraPages(context, keepPage) {
 }
 
 /**
+ * "교육행정 전자서명 인증서 로그인" 버튼(#btnLgn, 로그인 필요), 인증서 비밀번호 입력창
+ * (input[name="certPassword"], 이미 모달이 떠 있음), 포털 홈 메뉴(a.menuBtn, 이미 로그인
+ * 완료돼 메뉴까지 보임) 셋 중 뭐가 먼저 나타나는지 "경쟁"시킨다. 셋 다 같은 timeout을 걸고
+ * Promise.race로 묶으면, 실제로 먼저 나타나는 신호가 있는 즉시(다른 것들의 자체 타임아웃을
+ * 기다리지 않고) 바로 반환된다 - 셋 다 안 나타나면(드묾) null.
+ */
+async function raceLoginSignals(page, timeout) {
+  try {
+    return await Promise.race([
+      page.locator('#btnLgn').waitFor({ state: 'visible', timeout }).then(() => 'login-btn'),
+      page.locator('input[name="certPassword"]').waitFor({ state: 'visible', timeout }).then(() => 'cert-modal'),
+      page.locator('a.menuBtn').first().waitFor({ state: 'visible', timeout }).then(() => 'portal-home'),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 인증서 암호 입력이 필요한 상태인지 확인하고, 필요하면 자동 입력한다.
  * 이미 로그인돼 있으면(모달이 없으면) 그냥 통과한다.
  */
 async function completeCertLoginIfNeeded(page, password) {
-  // 로그인 페이지로 리다이렉트됐으면 "교육행정 전자서명 인증서 로그인" 버튼을 눌러야
-  // 인증서 모달이 나타난다. 이미 로그인된 상태 등으로 버튼이 없으면 그냥 넘어간다.
-  const loginBtn = page.locator('#btnLgn');
-  const hasLoginBtn = await loginBtn.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
-  if (hasLoginBtn) {
-    console.log('[PortalPet] clicking #btnLgn (교육행정 전자서명 인증서 로그인)...');
-    await loginBtn.click();
-  } else {
-    console.log('[PortalPet] #btnLgn not found/visible - assuming already past login screen');
+  // (버그 수정) 예전엔 "#btnLgn이 보이는지"(최대 5초)와 "certPassword가 보이는지"(최대 15초)를
+  // 순서대로 각각 끝까지 기다렸다 - 이미 로그인된 세션(인증서 모달 자체가 안 뜨는 경우)에서도
+  // 매번 이 두 대기를 합쳐 최대 20초를 그냥 허비하고 있었다(사용자가 배포판에서 재현: "복무
+  // 신청"으로 나이스 넘어가는 게 느림 - 콘솔 로그로 확인: certPassword 15초 타임아웃이 매번
+  // 그대로 찍힘). 이미 로그인돼 포털 홈 메뉴(a.menuBtn)가 바로 보이는 경우를 "로그인 버튼
+  // 등장"/"모달 등장"과 함께 경쟁시켜서, 셋 중 뭐든 먼저 나타나는 즉시 판정한다 - 이미 로그인된
+  // 경우 메뉴가 거의 바로 보이므로 대기가 사실상 없어진다.
+  const signal = await raceLoginSignals(page, 15000);
+  console.log('[PortalPet] 로그인 상태 판별 신호:', signal, '| url:', page.url());
+
+  if (signal === 'portal-home' || signal === null) {
+    // 이미 로그인돼 메뉴가 보이거나, 셋 다 못 잡았으면(판단 불가) 로그인 절차 없이 통과 -
+    // 예전에도 "모달 못 찾음 = 이미 로그인 또는 필요 없음"으로 동일하게 처리했다.
+    console.log('[PortalPet] 로그인 절차 불필요로 판단');
+    return { loggedIn: 'already-or-not-required' };
   }
+
+  if (signal === 'login-btn') {
+    console.log('[PortalPet] clicking #btnLgn (교육행정 전자서명 인증서 로그인)...');
+    await page.locator('#btnLgn').click().catch((e) => console.log('[PortalPet] #btnLgn 클릭 실패(non-fatal):', e.message));
+  }
+  // signal === 'cert-modal'이면 이미 모달이 떠 있으니 버튼 클릭 없이 바로 아래로 진행.
 
   console.log('[PortalPet] waiting for certPassword field... current url:', page.url());
   const passwordField = page.locator('input[name="certPassword"]');
