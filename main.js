@@ -411,9 +411,10 @@ function notifyDashboardIncreases(result) {
     if (prev != null && curr != null && curr > prev) {
       console.log(`[PortalPet] ${title} "${label}" 증가 감지: ${prevRaw} -> ${currRaw}`);
       if (Notification.isSupported()) {
+        // (수정) 사용자 요청 - 이전 값/화살표 없이 현재 결재 건수만 표시.
         new Notification({
           title: `${title} - 새로운 건이 있습니다`,
-          body: `${label}: ${prevRaw ?? '?'} → ${currRaw}`,
+          body: `${label}: ${currRaw}`,
         }).show();
       }
     }
