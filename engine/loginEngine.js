@@ -737,7 +737,13 @@ function findVisibleLeafCenterInPage({ candidates, closestSelector }) {
   // 보이는 입력 요소(숨겨진 검색창/선택창 등)를 템플릿에 같이 들고 있는 경우가 흔해서, DOM에
   // 있기만 하면 무조건 "업무 화면"으로 오판했던 것. 실제로 화면에 "보이는" 입력 요소가 있을
   // 때만 업무 화면으로 판단하도록 좁힌다.
-  const hasFormInputs = (el) => [...el.querySelectorAll('input:not([type="checkbox"]), select, textarea')].some(isVisible);
+  // (버그 수정 3) 공지사항 팝업 자체도 내용을 보여주는 스크롤 가능한 textarea(readonly)를 쓰고
+  // 있어서(실측 확인: 스크린샷으로 확인된 "전달사항내용조회" 팝업의 "내용" 칸이 readonly
+  // textarea) 바로 위 수정으로도 여전히 공지 팝업을 업무 화면으로 오판했다 - 읽기 전용/비활성
+  // 입력 요소는 사용자가 실제로 입력하는 게 아니라 내용을 보여주기만 하는 것이므로 제외한다.
+  const hasFormInputs = (el) => [...el.querySelectorAll(
+    'input:not([type="checkbox"]):not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])'
+  )].some(isVisible);
   for (const text of candidates) {
     const xs = [...document.querySelectorAll('*')]
       .filter((e) => (e.textContent || '').trim() === text && isVisible(e))
@@ -810,7 +816,13 @@ function findTopmostDialogCloseButtonInPage() {
   // (버그 수정 2) DOM에 존재하기만 해도(화면에 안 보이는 숨겨진 입력 요소 포함) "업무 화면"으로
   // 오판해 실제 공지 팝업까지 못 닫는 역효과가 있었다(사용자 재현: 나이스 복무 신청 진입 시
   // 공지 팝업 안 닫힘) - 실제로 화면에 "보이는" 입력 요소가 있을 때만 업무 화면으로 판단한다.
-  const hasFormInputs = (el) => [...el.querySelectorAll('input:not([type="checkbox"]), select, textarea')].some(isVisible);
+  // (버그 수정 3) 공지사항 팝업 자체도 내용을 보여주는 스크롤 가능한 textarea(readonly)를 쓰고
+  // 있어서(실측 확인: 스크린샷으로 확인된 "전달사항내용조회" 팝업의 "내용" 칸이 readonly
+  // textarea) 바로 위 수정으로도 여전히 공지 팝업을 업무 화면으로 오판했다 - 읽기 전용/비활성
+  // 입력 요소는 사용자가 실제로 입력하는 게 아니라 내용을 보여주기만 하는 것이므로 제외한다.
+  const hasFormInputs = (el) => [...el.querySelectorAll(
+    'input:not([type="checkbox"]):not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])'
+  )].some(isVisible);
   if (hasFormInputs(topDialog)) return null;
 
   const closeIcon = topDialog.querySelector('.cl-dialog-close');
@@ -907,7 +919,13 @@ function popupWatcherInitScript() {
   // (버그 수정 2) DOM에 존재하기만 해도(화면에 안 보이는 숨겨진 입력 요소 포함) "업무 화면"으로
   // 오판해 실제 공지 팝업까지 못 닫는 역효과가 있었다(사용자 재현: 나이스 복무 신청 진입 시
   // 공지 팝업 안 닫힘) - 실제로 화면에 "보이는" 입력 요소가 있을 때만 업무 화면으로 판단한다.
-  const hasFormInputs = (el) => [...el.querySelectorAll('input:not([type="checkbox"]), select, textarea')].some(isVisible);
+  // (버그 수정 3) 공지사항 팝업 자체도 내용을 보여주는 스크롤 가능한 textarea(readonly)를 쓰고
+  // 있어서(실측 확인: 스크린샷으로 확인된 "전달사항내용조회" 팝업의 "내용" 칸이 readonly
+  // textarea) 바로 위 수정으로도 여전히 공지 팝업을 업무 화면으로 오판했다 - 읽기 전용/비활성
+  // 입력 요소는 사용자가 실제로 입력하는 게 아니라 내용을 보여주기만 하는 것이므로 제외한다.
+  const hasFormInputs = (el) => [...el.querySelectorAll(
+    'input:not([type="checkbox"]):not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])'
+  )].some(isVisible);
   const looksLikePopup = () => {
     // (버그 수정) 인증서 로그인 화면(#btnLgn/certPassword)이 떠 있는 동안은 절대 팝업으로
     // 취급하지 않는다 - 실측 확인: 비밀번호 타이핑 도중 이 감시가 로그인 모달의 "확인" 버튼을
