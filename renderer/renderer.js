@@ -168,11 +168,18 @@ function makeDashboardRefreshButton() {
   btn.className = 'dashboard-refresh-btn';
   btn.type = 'button';
   btn.title = '나이스 결재 / 공문 결재 현황 새로고침';
-  btn.textContent = '⟳'; // ⟳
+  // (버그 수정) btn.textContent에 직접 "⟳"를 넣고 버튼 자신(.dashboard-refresh-btn)에 회전
+  // 애니메이션을 걸었더니, 화살표 글자만이 아니라 버튼의 테두리/배경까지 통째로 돌아 어색해
+  // 보였다(사용자 지적) - 화살표만 담는 내부 span을 따로 두고, 그 span에만 회전 애니메이션을
+  // 걸어 버튼 자체(테두리/배경)는 고정된 채 화살표만 돌게 한다.
+  const icon = document.createElement('span');
+  icon.className = 'dashboard-refresh-icon';
+  icon.textContent = '⟳';
+  btn.appendChild(icon);
   btn.addEventListener('click', async () => {
     if (btn.disabled) return;
     btn.disabled = true;
-    btn.classList.add('spinning');
+    icon.classList.add('spinning');
     hideError();
     try {
       const result = await window.portalPet.refreshPortalDashboard();
@@ -187,7 +194,7 @@ function makeDashboardRefreshButton() {
       showError(e?.message || '결재 현황을 확인하지 못했습니다.');
     } finally {
       btn.disabled = false;
-      btn.classList.remove('spinning');
+      icon.classList.remove('spinning');
     }
   });
   return btn;
