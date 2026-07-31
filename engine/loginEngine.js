@@ -614,7 +614,13 @@ async function clickText(page, text, { timeout = 6000, exact = false } = {}) {
   try {
     const el = page.getByText(text, { exact }).first();
     await el.waitFor({ state: 'visible', timeout });
-    await el.click();
+    // (버그 수정) el.click()에 timeout을 안 넘기면 Playwright 기본값(30초)이 적용된다 - 요소가
+    // DOM상 "visible"이어도(waitFor는 통과) 다른 무언가(예: 늦게 뜬 공지 팝업)에 가려 실제
+    // 클릭 가능(actionable) 상태가 아니면 30초를 꽉 채워 기다리다 "Timeout 30000ms exceeded"로
+    // 실패한다(사용자 재현: 배포판에서 나이스 복무 신청 진입이 느려지고 공지사항도 안 닫힘 -
+    // 콘솔 로그로 이 정확한 오류 확인). waitFor와 같은 timeout을 줘서 막혀 있으면 훨씬 빨리
+    // 포기하고 위쪽 재시도/복구 로직(popup 닫기 재시도 등)으로 넘어가게 한다.
+    await el.click({ timeout });
     console.log(`[PortalPet] clicked text "${text}" (exact:${exact})`);
     return true;
   } catch (e) {
@@ -763,6 +769,26 @@ async function closeAnyPopups(page, { maxAttempts = 8 } = {}) {
     if (!closed) break;
     console.log('[PortalPet] closed a popup');
     await page.waitForTimeout(200);
+  }
+}
+
+/**
+ * (버그 대응) closeAnyPopups는 "호출된 그 순간" 화면에 있는 팝업만 처리한다 - 나이스 진입 직후
+ * 공지 팝업이 고정 대기 시간(예: 1.5초)보다 늦게 렌더링되면, 그 시점엔 아직 팝업이 없어서
+ * closeAnyPopups가 "닫을 게 없다"며 곧바로 끝나버리고, 그 뒤늦게 뜬 팝업이 이어지는 클릭
+ * (예: "복무" 메뉴)을 가리게 된다. 실제로 사용자가 배포판에서 재현한 콘솔 로그에
+ * "elementHandle.click: Timeout 30000ms exceeded"가 찍혀 이 시나리오임을 확인했다 - 요소
+ * 자체는 DOM상 보이는데(waitFor 통과) 그 위에 팝업이 덮고 있어 실제 클릭(actionable 상태)이
+ * 안 되고 있었던 것. 한 번만 확인하고 끝내는 대신, 지정한 시간 동안 주기적으로 다시 확인해서
+ * 늦게 뜨는 팝업도 잡아낸다. 팝업이 없으면(가장 흔한 경우) 매 폴링이 거의 즉시 끝나므로
+ * 체감 지연은 크지 않다.
+ */
+async function closeAnyPopupsForAWhile(page, { totalWaitMs = 4000, pollMs = 500 } = {}) {
+  await closeAnyPopups(page); // 이미 떠 있는 팝업은 바로 처리
+  const deadline = Date.now() + totalWaitMs;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(pollMs);
+    await closeAnyPopups(page);
   }
 }
 
@@ -1047,7 +1073,9 @@ async function clickNeisTaskControl(page, tabName, controlText) {
     console.log(`[PortalPet] 나이스 "${tabName}" 탭에서 "${controlText}" 버튼을 못 찾음`);
     return false;
   }
-  await el.click();
+  // (버그 수정) 기본 타임아웃(30초)이 적용되면 늦게 뜬 공지 팝업 등에 가려 클릭이 막혔을 때
+  // 30초를 꽉 채워 기다린 뒤에야 실패한다(사용자 재현: 배포판에서 복무 신청 진입이 느려짐).
+  await el.click({ timeout: 5000 });
   console.log(`[PortalPet] clicked 나이스 "${tabName}" 탭의 "${controlText}" 버튼`);
   return true;
 }
@@ -1090,7 +1118,7 @@ async function ensureNeisDutyMenuExpanded(page, subMenuLabel) {
     console.log('[PortalPet] 나이스 복무 메뉴 펼침 아이콘을 못 찾음');
     return isSubMenuVisible();
   }
-  await el.click();
+  await el.click({ timeout: 5000 }); // (버그 수정) clickNeisTaskControl과 동일한 이유로 짧은 타임아웃 적용
   console.log('[PortalPet] clicked 나이스 복무 메뉴 펼침 아이콘');
   await page.waitForTimeout(750);
   return isSubMenuVisible();
@@ -1259,8 +1287,11 @@ async function openNeisSubMenu(page, subdomain, taskTabName, password, alreadyOn
   // 상태(alreadyOnNeis)에서도(예: 다른 메뉴를 갔다가 다시 나이스 결재/복무 등을 누를 때)
   // 다시 뜨는 경우가 실측 확인됨 - 이전엔 alreadyOnNeis일 때 이 호출이 아예 생략돼서 공지
   // 팝업이 안 닫힌 채로 남아 있었다(사용자가 스크린샷으로 재현 확인). alreadyOnNeis 여부와
-  // 무관하게 매번 먼저 닫아준다 - 팝업이 없으면 closeAnyPopups는 거의 즉시 끝난다.
-  await closeAnyPopups(target);
+  // 무관하게 매번 먼저 닫아준다. (버그 수정) 한 번만 확인하고 끝내면 늦게 뜨는 팝업을
+  // 놓친다(사용자 재현: 배포판에서 복무 신청 진입이 느려지고 공지가 안 닫힘 - 늦게 뜬 팝업이
+  // 아래 "복무" 클릭을 가려서 기본 30초 타임아웃까지 걸림) - 팝업이 없으면 거의 즉시 끝나는
+  // closeAnyPopupsForAWhile로 몇 초간 지켜본다.
+  await closeAnyPopupsForAWhile(target);
   // (수정) 근무상황신청 다이얼로그는 화면 전체를 덮지 않는 플로팅 창이라, 좌측 "복무" 메뉴가
   // 시각적으로 가려지지 않아 클릭 자체는 "성공"해버릴 수 있다(다이얼로그는 그대로 열린 채).
   // 그래서 클릭 실패 여부와 무관하게, 먼저 열려 있는지부터 확인해서 선제적으로 닫는다.
@@ -1320,8 +1351,9 @@ async function openNeisApproval(page, subdomain, password, alreadyOnNeis = false
   // (수정) alreadyOnNeis일 때도(이미 나이스에 있다가 "나이스 결재"를 다시 누르는 경우 등)
   // 공지사항 팝업이 다시 뜰 수 있는데, 예전엔 이 호출이 fresh-navigation 분기 안에만 있어서
   // alreadyOnNeis면 아예 건너뛰었다 - 그래서 "미결/협조함" 클릭 전에 팝업이 안 닫힌 채로
-  // 남는 문제가 있었다(스크린샷으로 재현 확인). 매번 먼저 닫아준다.
-  await closeAnyPopups(target);
+  // 남는 문제가 있었다(스크린샷으로 재현 확인). 매번 먼저 닫아준다. (버그 수정) openNeisSubMenu와
+  // 동일한 이유로 늦게 뜨는 팝업까지 잡도록 closeAnyPopupsForAWhile을 쓴다.
+  await closeAnyPopupsForAWhile(target);
   // 근무상황신청 등 신청서 창이 좌측 메뉴를 가리고 있을 수 있으니 먼저 확인 후 닫는다
   // (openNeisSubMenu와 동일한 이유 - 다이얼로그가 화면 전체를 덮지 않아 클릭이 조용히 씹힐 수 있음).
   if (alreadyOnNeis && (await isNeisRequestPopupVisible(target))) {
