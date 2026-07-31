@@ -377,6 +377,28 @@ async function runDashboardRefresh() {
   }
 }
 
+// 패널의 새로고침 버튼 클릭 시 - 정기 자동 확인과 별개로 사용자가 원하는 시점에 즉시 확인.
+// autoLogin이 꺼져 있어도(수동 입력 모드) 여기서는 사용자가 지금 화면 앞에 있다고 볼 수 있어
+// 자동 확인 스케줄러와 달리 막지 않는다 - 필요하면 completeCertLoginIfNeeded가 알아서 인증서
+// 창을 앞으로 가져와 입력을 기다린다.
+ipcMain.handle('refresh-portal-dashboard', async () => {
+  const config = credentialStore.loadConfig();
+  if (!(config.subdomain || config.region)) return { ok: false, error: 'not-configured' };
+  const autoLogin = config.autoLogin !== false;
+  if (autoLogin && !config.encryptedPasswordBase64) return { ok: false, error: 'not-configured' };
+  const subdomain = REGIONS[config.region] || config.subdomain;
+  const password = (autoLogin && config.encryptedPasswordBase64)
+    ? credentialStore.decryptPassword(config.encryptedPasswordBase64)
+    : null;
+  try {
+    const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+    return result;
+  } catch (err) {
+    console.error('[PortalPet] refresh-portal-dashboard failed:', err);
+    return { ok: false, error: err.message || String(err) };
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
   createTray();

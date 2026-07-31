@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('portalPet', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   // 나이스 미결/협조함, K-에듀파인 결재(긴급) 자동 확인 결과(주기적으로 main.js가 보냄).
   onPortalDashboardUpdated: (callback) => ipcRenderer.on('portal-dashboard-updated', (_evt, data) => callback(data)),
+  // 새로고침 버튼 클릭 시 즉시 확인(정기 자동 확인과 별개).
+  refreshPortalDashboard: () => ipcRenderer.invoke('refresh-portal-dashboard'),
   // 드래그로 펫 위치 이동: 매 mousemove마다 화면 좌표 델타(dx, dy)만 보낸다 - 창을 프레임
   // 없이 쓰고 있어서(-webkit-app-region: drag는 클릭과 충돌할 수 있어) 직접 구현.
   movePetBy: (dx, dy) => ipcRenderer.send('move-pet-by', dx, dy),

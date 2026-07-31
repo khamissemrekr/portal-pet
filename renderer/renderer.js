@@ -134,23 +134,60 @@ function updateDashboardBadges(data) {
   }
 }
 
+// (수정) 예전엔 0건이면 배지를 아예 숨겼는데, 사용자가 "지금 잘 불러와지고 있는지" 확인할 방법이
+// 없어서(0인지 아직 값을 못 받아온 건지 구분이 안 됨) 헷갈렸다 - 이제 데이터를 한 번이라도 받아온
+// 이후에는 0이어도 "0"으로 표시한다(아직 한 번도 못 받아왔을 때만 숨김). 0건일 땐 회색으로 옅게.
 function setDashboardBadge(key, rawValue) {
   const badge = dashboardBadgeEls[key];
   if (!badge) return;
-  const leadingNum = rawValue != null ? parseInt(String(rawValue).match(/^[0-9]+/)?.[0] || '0', 10) : 0;
-  if (rawValue == null || leadingNum <= 0) {
+  if (rawValue == null) {
     badge.classList.add('hidden');
     return;
   }
+  const leadingNum = parseInt(String(rawValue).match(/^[0-9]+/)?.[0] || '0', 10);
   badge.textContent = String(rawValue).length > 6 ? String(leadingNum) : String(rawValue); // 예: "0(0)"은 그대로, 너무 길면 숫자만
   badge.title = `${DASHBOARD_BADGE_KEYS[key]} ${rawValue}`;
+  badge.classList.toggle('zero', leadingNum <= 0);
   badge.classList.remove('hidden');
 }
 
 window.portalPet.onPortalDashboardUpdated(updateDashboardBadges);
 
+// 정기 자동 확인(기본 5분)과 별개로, 사용자가 원할 때 바로 새로고침할 수 있는 버튼.
+function makeDashboardRefreshButton() {
+  const btn = document.createElement('button');
+  btn.className = 'dashboard-refresh-btn';
+  btn.type = 'button';
+  btn.title = '나이스 결재 / 공문 결재 현황 새로고침';
+  btn.textContent = '⟳'; // ⟳
+  btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('spinning');
+    hideError();
+    try {
+      const result = await window.portalPet.refreshPortalDashboard();
+      if (result?.ok) {
+        updateDashboardBadges(result);
+      } else {
+        showError(result?.error === 'not-configured'
+          ? '먼저 설정에서 지역/비밀번호를 저장해 주세요.'
+          : (result?.error || '결재 현황을 확인하지 못했습니다.'));
+      }
+    } catch (e) {
+      showError(e?.message || '결재 현황을 확인하지 못했습니다.');
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('spinning');
+    }
+  });
+  return btn;
+}
+
 // ===== 업무포털 메인(예: https://goe.eduptl.kr/bpm_man_mn00_001.do) - 세 시스템 메뉴 위에 별도로 =====
-document.getElementById('portal-home-wrap').appendChild(makeButton('portal_home', '업무포털 메인', true));
+const portalHomeWrap = document.getElementById('portal-home-wrap');
+portalHomeWrap.appendChild(makeButton('portal_home', '업무포털 메인', true));
+portalHomeWrap.appendChild(makeDashboardRefreshButton());
 
 COLUMNS.forEach(({ key, label, subs }) => {
   const col = document.createElement('div');
