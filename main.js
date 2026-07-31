@@ -153,6 +153,10 @@ function createTray() {
         app.setLoginItemSettings(settings);
       } },
     { type: 'separator' },
+    // (임시/테스트용) 실제 포털 로그인 없이도 알림+배지가 어떻게 보이는지 바로 확인할 수 있도록
+    // 임의 값으로 "증가" 상황을 흉내낸다. 실제 데이터가 아니므로 라벨에 명시해둔다.
+    { label: '테스트: 결재/승인 알림 미리보기 (임의 값)', click: testDashboardNotification },
+    { type: 'separator' },
     { label: `버전 ${app.getVersion()}`, enabled: false },
     { label: '새 버전 확인 (GitHub Releases)', click: () => shell.openExternal(RELEASES_URL) },
     { type: 'separator' },
@@ -404,6 +408,32 @@ function notifyDashboardIncreases(result) {
     }
   }
   lastDashboardCounts = result;
+}
+
+/**
+ * (임시/테스트용) 실제 로그인/포털 접속 없이 트레이 메뉴 클릭 한 번으로 "배지 증가 -> 알림" 흐름
+ * 전체를 확인할 수 있게 만든 함수. lastDashboardCounts를 임의의 기준값으로 덮어쓴 뒤, 그보다
+ * 큰 임의 값으로 notifyDashboardIncreases를 호출해 실제 알림 로직(Notification.isSupported()
+ * 체크, 메시지 문구 등)을 그대로 타게 한다. 패널이 열려 있으면 배지도 같이 임의 값으로 바뀌는
+ * 걸 볼 수 있도록 'portal-dashboard-updated'도 같이 보낸다. 테스트가 끝나면 다음 정기/수동
+ * 확인이 실제 값으로 lastDashboardCounts를 다시 덮어써서 자연히 정상 상태로 돌아온다.
+ */
+function buildFakeDashboardResult({ nice, edufine, edmgr }) {
+  return {
+    ok: true,
+    nice: { '미결/협조함': String(nice) },
+    edufine: { '결재(긴급)': `${edufine}(0)` },
+    edmgr: { '내부승인(처리)': String(edmgr) },
+  };
+}
+
+function testDashboardNotification() {
+  console.log('[PortalPet] 알림 테스트: 임의 값으로 증가 알림 미리보기');
+  const before = buildFakeDashboardResult({ nice: 0, edufine: 0, edmgr: 0 });
+  const after = buildFakeDashboardResult({ nice: 2, edufine: 1, edmgr: 3 });
+  lastDashboardCounts = before; // 기준값을 임의로 세팅(테스트용 - 실제 값을 일시적으로 덮어씀)
+  notifyDashboardIncreases(after);
+  if (win && !win.isDestroyed()) win.webContents.send('portal-dashboard-updated', after); // 패널 배지도 같이 확인 가능
 }
 
 async function runDashboardRefresh() {
