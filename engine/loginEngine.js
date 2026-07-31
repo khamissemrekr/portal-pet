@@ -1675,14 +1675,21 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
   }
 
   // 나이스 승인사항은 neisLoader()가 페이지 로드 후 별도 AJAX(/bpm_man_mn00_003.do)로 채우는
-  // 방식이라(실측 확인) 곧바로 읽으면 빈 목록일 수 있다 - li가 생길 때까지 짧게 기다린다.
-  // K-에듀파인 결재 현황은 페이지에 이미 서버 렌더링돼 있는 것으로 보이지만, 혹시 몰라 같은
-  // 조건으로 한 번에 기다린다(있으면 즉시 통과, 없어도 최대 8초 후 타임아웃하고 계속 진행).
+  // 방식이라(실측 확인) 곧바로 읽으면 빈 목록일 수 있다. (수정) K-에듀파인 결재 현황도 마찬가지로
+  // 비동기로 채워지는 것으로 보이는데, 예전엔 나이스(.aprvWork1)만 기다리고 K-에듀파인은 안
+  // 기다려서 나이스가 먼저 뜨는 순간 곧장 읽어버리는 바람에 K-에듀파인 값이 아직 비어있는 채로
+  // 읽히는 경우가 있었다(사용자 재현: "공문 결재는 불러오는 시간이 좀 더딘 것 같다" - 실제로는
+  // 느린 게 아니라 이번 주기엔 빈 값으로 읽혀서 다음 주기에야 반영되니 "더딘" 것처럼 보인
+  // 것으로 추정). 이제 존재하는 섹션에 한해 나이스/K-에듀파인 둘 다 li가 생길 때까지 같이
+  // 기다린다 - 섹션 자체가 DOM에 없으면(지역별로 위젯 구성이 다를 수 있어 대비) 그냥 통과시킨다.
   await page.waitForFunction(() => {
-    const aprv = document.querySelector('.aprvWork1');
-    return !!aprv && aprv.querySelectorAll('li').length > 0;
-  }, { timeout: 8000 }).catch(() => {
-    console.log('[PortalPet] 나이스 승인사항 로딩 대기 타임아웃(계속 진행) - 데이터가 비어있을 수 있음');
+    const readyOrAbsent = (sel) => {
+      const el = document.querySelector(sel);
+      return !el || el.querySelectorAll('li').length > 0;
+    };
+    return readyOrAbsent('.aprvWork1') && readyOrAbsent('.keduBox1');
+  }, { timeout: 10000 }).catch(() => {
+    console.log('[PortalPet] 포털 현황(나이스/K-에듀파인) 로딩 대기 타임아웃(계속 진행) - 일부 데이터가 비어있을 수 있음');
   });
 
   const result = await page.evaluate(extractPortalDashboardCounts).catch((e) => {
