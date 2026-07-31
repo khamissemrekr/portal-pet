@@ -6,12 +6,18 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis"
+    "dist": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis",
+    "release": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis --publish always"
   },
   "build": {
     "appId": "com.portalpet.app",
     "productName": "PortalPet",
     "asar": false,
+    "publish": {
+      "provider": "github",
+      "owner": "khamissemrekr",
+      "repo": "portal-pet"
+    },
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
