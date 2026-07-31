@@ -184,7 +184,12 @@ async function getContext(browserProfile, subdomain, browserChannel = 'chrome') 
   const profileKey = browserProfile
     ? `${browserProfile.root}::${browserProfile.folder}`
     : `portalpet-dedicated::${browserChannel}`;
-  if (sharedContext && lastBrowserProfileKey === profileKey) return sharedContext;
+  // (수정) isNew를 같이 반환한다 - checkPortalDashboard가 "이번에 내가 방금 새로 띄운 브라우저인지"를
+  // 알아야, 그 경우에만 창을 최소화해서(백그라운드 확인용 창이 화면에 계속 떠 있지 않도록) 사용자
+  // 작업을 방해하지 않을 수 있다(사용자 요청: "일정/메신저 자동 실행을 껐는데도 업무포털 메인
+  // 화면이 무조건 뜬다"). 이미 떠 있던 브라우저를 재사용하는 경우(isNew:false)는 사용자가 이미
+  // 보고 있었을 수 있으니 건드리지 않는다.
+  if (sharedContext && lastBrowserProfileKey === profileKey) return { context: sharedContext, isNew: false };
 
   if (sharedContext && lastBrowserProfileKey !== profileKey) {
     console.log('[PortalPet] browser profile/channel selection changed - closing previous browser...');
@@ -261,7 +266,29 @@ async function getContext(browserProfile, subdomain, browserChannel = 'chrome') 
     sharedPage = null;
     mainServiceTabs.clear();
   });
-  return sharedContext;
+  return { context: sharedContext, isNew: true };
+}
+
+/**
+ * checkPortalDashboard가 이번 호출에서 브라우저를 방금 새로 띄웠을 때만 그 창을 최소화한다.
+ * (배경) launchPersistentContext는 headless:false라 브라우저 창이 실제로 화면에 뜨는데, 새로
+ * 만들어진 최상위 창은 OS가 보통 포커스를 주면서 화면 앞으로 가져온다 - 우리가 bringToFront를
+ * 안 불러도 "그냥 새로 뜬 창이라서" 사용자 눈에 보이게 된다(사용자 재현: 메신저/일정 자동 실행을
+ * 꺼놨는데도 결재 현황 자동 확인 때문에 처음 뜨는 브라우저가 업무포털 메인 화면인 채로 눈에
+ * 보임). 사용자가 명시적으로 누른 메뉴(launchService)는 여전히 끝에서 bringToFront로 보여주고,
+ * 오직 백그라운드 전용인 checkPortalDashboard의 "방금 새로 띄운 경우"만 최소화해 방해하지 않는다.
+ * Playwright에는 창을 최소화하는 API가 따로 없어 CDP(Browser.setWindowBounds)를 직접 호출한다.
+ */
+async function minimizeContextWindow(context, page) {
+  try {
+    const client = await context.newCDPSession(page);
+    const { windowId } = await client.send('Browser.getWindowForTarget');
+    await client.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'minimized' } });
+    await client.detach().catch(() => {});
+    console.log('[PortalPet] 백그라운드 확인용으로 새로 띄운 브라우저 창을 최소화함');
+  } catch (e) {
+    console.log('[PortalPet] 브라우저 창 최소화 실패(non-fatal, 그냥 화면에 보이는 채로 진행):', e.message);
+  }
 }
 
 /**
@@ -1482,7 +1509,7 @@ const TAB_GROUP = { ...SERVICE_SYSTEM, portal_home: 'portal_home' };
  */
 async function launchService(serviceKey, subdomain, password, browserProfile = null, browserChannel = 'chrome') {
   console.log(`[PortalPet] launchService(${serviceKey}, ${subdomain}, ${browserChannel})`);
-  const context = await getContext(browserProfile, subdomain, browserChannel);
+  const { context } = await getContext(browserProfile, subdomain, browserChannel); // 사용자 클릭 결과는 항상 bringToFront로 보여주므로 isNew 여부와 무관
   // (수정) 이미 다른 화면이 떠서 사용 중이면(사용자가 방금 전 메뉴로 연 화면이 아직 열려 있으면)
   // 그 화면을 그대로 두고 이번 클릭은 새 탭에서 실행한다 - 예전엔 항상 같은 탭을 재사용해서
   // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
@@ -1650,10 +1677,18 @@ function extractPortalDashboardCounts() {
  */
 async function checkPortalDashboard(subdomain, password, browserProfile = null, browserChannel = 'chrome') {
   console.log(`[PortalPet] checkPortalDashboard(${subdomain}, ${browserChannel})`);
-  const context = await getContext(browserProfile, subdomain, browserChannel);
+  const { context, isNew } = await getContext(browserProfile, subdomain, browserChannel);
   const openNewTab = await shouldOpenNewTabFor('portal_home', subdomain);
   const page = openNewTab ? await openFreshTab(context) : await getPage(context);
   await closeExtraPages(context, page);
+
+  // (수정) 사용자 요청 - 메신저/일정 자동 실행을 꺼놔도 결재 현황 자동 확인 때문에 브라우저가
+  // 새로 뜨면서 업무포털 메인 화면이 눈에 보이는 문제. 이번 호출에서 브라우저를 방금 새로
+  // 띄웠을 때만(재사용이 아니라 콜드 스타트일 때만) 창을 최소화한다 - 이미 떠 있던 창이면
+  // 사용자가 보고 있었을 수 있으니 건드리지 않는다.
+  if (isNew) {
+    await minimizeContextWindow(context, page);
+  }
 
   const alreadyOnPortalHome = (await currentTabSystemGroup(page, subdomain)) === 'portal_home';
   if (alreadyOnPortalHome) {
