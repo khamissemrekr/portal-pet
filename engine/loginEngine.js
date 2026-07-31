@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
-const { buildPortalUrl, buildNiceUrl, buildEdufineUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
+const { buildPortalUrl, buildNiceUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
 
 // (수정) 엣지 지원 추가 - "PortalPet 전용 프로필"은 어떤 브라우저(channel)를 쓰느냐에 따라
 // 폴더를 분리한다. 크롬은 기존 사용자들의 이미 마쳐둔 보안프로그램/인증서 설정이 담긴 폴더명을
@@ -294,6 +294,7 @@ async function currentTabSystemGroup(page, subdomain) {
   if (await isOnSystem(page, 'nice', subdomain)) return 'nice';
   if (await isOnSystem(page, 'edufine', subdomain)) return 'edufine';
   if (await isOnSystem(page, 'gone', subdomain)) return 'gone';
+  if (await isOnSystem(page, 'edmgr', subdomain)) return 'edmgr';
   try {
     if (currentHostname(page).endsWith('.eduptl.kr')) return 'portal_home';
   } catch { /* ignore */ }
@@ -1138,6 +1139,7 @@ async function isOnSystem(page, system, subdomain) {
     }).catch(() => false);
     return hasGoneNav;
   }
+  if (system === 'edmgr') return host === `${subdomain}.edmgr.kr`;
   return false;
 }
 
@@ -1438,6 +1440,29 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
   return target;
 }
 
+/**
+ * 교데통(교육행정데이터통합관리) 내부승인처리: 포털 -> 교육데이터포털(SSO, 포털 홈 .main-menu에
+ * "교육데이터포털" 라벨로 존재 - 실측 확인: 사용자가 제공한 포털 메인 HTML 소스) -> 내부승인처리
+ * 화면(taskPotlMain). SSO 진입점(main)과 내부승인처리 화면(taskPotlMain)이 서로 다른 경로라,
+ * SSO가 끝난 뒤 같은 탭에서 한 번 더 이동한다(같은 origin이라 세션 쿠키가 유지됨).
+ * G-ONE과는 도메인 자체가 달라(gdp.*.go.kr vs *.edmgr.kr) 완전히 별개 시스템으로 취급한다
+ * (SERVICE_SYSTEM/TAB_GROUP에서도 'gone'이 아니라 'edmgr').
+ */
+async function openEdmgrApproval(page, subdomain, password, alreadyOnEdmgr = false) {
+  let target = page;
+  if (alreadyOnEdmgr) {
+    console.log('[PortalPet] 이미 교데통에 있음 - 포털 홈 재방문 생략');
+  } else {
+    await ensureOnPortalHome(page, subdomain);
+    target = await goToPortalMenu(page, '교육데이터포털', { fallbackUrl: buildEdmgrUrl(subdomain, 'main'), password });
+  }
+  await gotoWithRetry(target, buildEdmgrUrl(subdomain, 'taskPotlMain'), { waitUntil: 'domcontentloaded' }).catch((e) =>
+    console.log('[PortalPet] 교데통 내부승인처리 이동 실패:', e.message)
+  );
+  await closeAnyPopups(target);
+  return target;
+}
+
 // 서비스 버튼 키 -> 어느 시스템에 속하는지. 이미 그 시스템 안에 있으면 포털 홈을 다시
 // 거칠 필요가 없다(사용자 제안: "나이스에 있는지 에듀파인에 있는지 G-ONE에 있는지에 따라
 // 다시 포털 화면으로 나가지 않고 바로 다른 메뉴로 이동").
@@ -1445,6 +1470,7 @@ const SERVICE_SYSTEM = {
   nice: 'nice', bokmu: 'nice', trip: 'nice', nice_approval: 'nice',
   edufine: 'edufine', giahn: 'edufine', pumui: 'edufine', edufine_approval: 'edufine',
   gone: 'gone', gone_msg: 'gone', gone_ai: 'gone', gone_schedule: 'gone',
+  edmgr_approval: 'edmgr',
 };
 
 // 탭 재사용 여부 판단 전용 - "업무포털 메인"도 하나의 그룹으로 취급해서, 나이스/K-에듀파인/
@@ -1572,6 +1598,9 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       break;
     case 'gone_schedule':
       targetPage = await openGoneSubMenu(context, page, subdomain, ['일정'], password, alreadyInTargetSystem);
+      break;
+    case 'edmgr_approval':
+      targetPage = await openEdmgrApproval(page, subdomain, password, alreadyInTargetSystem);
       break;
     default:
       console.log(`[PortalPet] unknown serviceKey "${serviceKey}" - staying on portal home`);

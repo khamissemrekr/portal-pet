@@ -21,9 +21,12 @@ const COLUMNS = [
   {
     key: 'gone', label: 'G-ONE',
     subs: [
-      { key: 'gone_msg', label: '메신저' },
+      // (수정) 사용자 요청으로 메뉴 화면에서만 숨김 - 기능 코드/자동 실행 설정(autoLaunchMessenger)은
+      // 그대로 둔다.
+      // { key: 'gone_msg', label: '메신저' },
       { key: 'gone_ai', label: 'AI 대화·초안' },
       { key: 'gone_schedule', label: '일정' },
+      { key: 'edmgr_approval', label: '교데통' },
     ],
   },
 ];
@@ -78,16 +81,22 @@ function setButtonsDisabled(disabled) {
   servicesEl.querySelectorAll('.service-btn').forEach((b) => { b.disabled = disabled; });
 }
 
-// 나이스 결재/공문 결재 버튼에 붙는 자동 확인 배지(주기적으로 main.js가 보내주는 데이터로 갱신).
-// 버튼 element가 만들어질 때 key -> 배지 span을 기록해뒀다가, updateDashboardBadges에서 찾아 쓴다.
+// 나이스 결재/공문 결재/교데통 내부승인처리 버튼에 붙는 자동 확인 배지(주기적으로 main.js가
+// 보내주는 데이터로 갱신). 버튼 element가 만들어질 때 key -> 배지 span을 기록해뒀다가,
+// updateDashboardBadges에서 찾아 쓴다. bucket은 checkPortalDashboard 결과(nice/edufine/edmgr)
+// 중 어디서 값을 읽을지, label은 그 안에서 찾을 정확한 라벨 텍스트.
 const dashboardBadgeEls = {};
-const DASHBOARD_BADGE_KEYS = { nice_approval: '미결/협조함', edufine_approval: '결재(긴급)' };
+const DASHBOARD_BADGE_CONFIG = {
+  nice_approval: { bucket: 'nice', label: '미결/협조함' },
+  edufine_approval: { bucket: 'edufine', label: '결재(긴급)' },
+  edmgr_approval: { bucket: 'edmgr', label: '내부승인(처리)' },
+};
 
 function makeButton(key, label, isHeader) {
   const btn = document.createElement('button');
   btn.className = isHeader ? 'service-btn header' : 'service-btn';
   btn.textContent = label;
-  if (DASHBOARD_BADGE_KEYS[key]) {
+  if (DASHBOARD_BADGE_CONFIG[key]) {
     const badge = document.createElement('span');
     badge.className = 'dashboard-badge hidden';
     btn.appendChild(badge);
@@ -127,8 +136,8 @@ function makeButton(key, label, isHeader) {
 // 여기서 해당 버튼의 배지를 갱신한다. 예전(결재 건수 확인 버튼)과 달리 클릭 없이 자동으로 채워짐.
 function updateDashboardBadges(data) {
   if (!data || !data.ok) return; // 실패하면 마지막으로 성공했던 값을 그대로 둔다.
-  for (const [key, label] of Object.entries(DASHBOARD_BADGE_KEYS)) {
-    const system = key === 'nice_approval' ? data.nice : data.edufine;
+  for (const [key, { bucket, label }] of Object.entries(DASHBOARD_BADGE_CONFIG)) {
+    const system = data[bucket];
     const rawValue = system ? system[label] : null;
     setDashboardBadge(key, rawValue);
   }
@@ -146,7 +155,7 @@ function setDashboardBadge(key, rawValue) {
   }
   const leadingNum = parseInt(String(rawValue).match(/^[0-9]+/)?.[0] || '0', 10);
   badge.textContent = String(rawValue).length > 6 ? String(leadingNum) : String(rawValue); // 예: "0(0)"은 그대로, 너무 길면 숫자만
-  badge.title = `${DASHBOARD_BADGE_KEYS[key]} ${rawValue}`;
+  badge.title = `${DASHBOARD_BADGE_CONFIG[key]?.label || ''} ${rawValue}`;
   badge.classList.toggle('zero', leadingNum <= 0);
   badge.classList.remove('hidden');
 }

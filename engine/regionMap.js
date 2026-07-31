@@ -46,6 +46,13 @@ function buildEdufineUrl(subdomain) {
   return `https://${domain}/keris_ui/main.do`;
 }
 
+// 교육행정데이터통합관리(교데통)도 G-ONE과 마찬가지로 지역마다 서브도메인이 붙는 패턴으로
+// 보인다(실측 확인된 건 goe.edmgr.kr 하나뿐 - 다른 지역은 미검증). path 기본값은 "내부승인처리"
+// 화면(taskPotlMain), SSO 진입점은 path='main'으로 호출.
+function buildEdmgrUrl(subdomain, path = 'taskPotlMain') {
+  return `https://${subdomain}.edmgr.kr/${path}`;
+}
+
 // G-ONE(업무협업G-ONE)은 경기도교육청 전용 플랫폼이라 다른 지역엔 없을 가능성이 높다(미확인).
 // 포털 메뉴 실측 DOM(a.menuBtn id 속성)에서 확인한 정확한 SSO 진입 URL. 지금은 goToPortalMenu가
 // 포털 홈의 실시간 DOM에서 먼저 읽어오므로, 이 값은 그게 실패했을 때의 fallback으로만 쓰인다.
@@ -60,5 +67,6 @@ module.exports = {
   buildPortalUrl,
   buildNiceUrl,
   buildEdufineUrl,
+  buildEdmgrUrl,
   GONE_URL_BY_SUBDOMAIN,
 };
