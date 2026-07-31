@@ -1925,6 +1925,66 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
  * 항목만 별도로 페이지를 옮겨다니지 않아도(예전 checkEdufineApprovalCount처럼 K-에듀파인 안까지
  * 들어갈 필요 없이) 포털 메인 한 화면에서 나이스/K-에듀파인 수치를 동시에 읽을 수 있다.
  */
+/**
+ * 업무포털 메인의 "나이스 승인사항"/"K-에듀파인 전자결재 현황"/"교육행정데이터통합관리 알림
+ * 현황" 박스는 각각 제목 옆에 그 박스만 새로고침하는 아이콘(⟳)을 갖고 있다(사용자 스크린샷
+ * 확인). 탭을 재사용해서 페이지 전체를 다시 불러오지 않는 경우(checkPortalDashboard의
+ * alreadyOnPortalHome 분기)에도, 이 아이콘을 눌러 그 박스만 새로고침하면 전체 페이지 리로드
+ * 없이도 최신 값을 받아올 수 있다 - 페이지를 안 새로고침하면 이전에 읽은 값을 그대로 다시
+ * 읽어올 뿐이라는 사용자 지적으로 추가.
+ * 정확한 아이콘 선택자를 실측하지 못해, 각 박스의 데이터 컨테이너(.aprvWork1 등 - 이미 실측
+ * 확인된 확실한 기준점)에서 몇 단계 위 조상까지만 범위를 좁혀 그 안에서 아이콘류 요소를 찾는다
+ * (검색 범위를 그 박스 안으로 한정해 다른 박스나 페이지의 엉뚱한 버튼을 잘못 누르지 않도록 함).
+ */
+function findDashboardRefreshIconsInPage() {
+  const isVisible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const dataSelectors = ['.aprvWork1', '.keduBox1', '.edmgrBox1'];
+  const points = [];
+  for (const sel of dataSelectors) {
+    const dataEl = document.querySelector(sel);
+    if (!dataEl) continue;
+    let container = dataEl;
+    let icon = null;
+    for (let hop = 0; hop < 6 && container && !icon; hop++) {
+      container = container.parentElement;
+      if (!container) break;
+      const candidates = [...container.querySelectorAll(
+        'svg, i, img, button, a, [class*="refresh" i], [class*="reload" i], [aria-label*="새로고침"], [title*="새로고침"]'
+      )].filter((e) => {
+        if (!isVisible(e)) return false;
+        const r = e.getBoundingClientRect();
+        return r.width > 0 && r.width < 40 && r.height > 0 && r.height < 40; // 작은 아이콘류만
+      });
+      if (candidates.length) icon = candidates[0];
+    }
+    if (icon) {
+      const r = icon.getBoundingClientRect();
+      points.push({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    }
+  }
+  return points;
+}
+
+/** findDashboardRefreshIconsInPage로 찾은 좌표들을 실제 마우스 클릭으로 하나씩 눌러준다. */
+async function clickDashboardRefreshIcons(page) {
+  const points = await page.evaluate(findDashboardRefreshIconsInPage).catch(() => []);
+  for (const { x, y } of points) {
+    await page.mouse.move(x, y).catch(() => {});
+    await page.mouse.click(x, y).catch(() => {});
+  }
+  if (points.length) {
+    console.log(`[PortalPet] 대시보드 박스 새로고침 아이콘 ${points.length}개 클릭`);
+  } else {
+    console.log('[PortalPet] 대시보드 새로고침 아이콘을 못 찾음 - 페이지 새로고침으로 대체');
+  }
+  return points.length > 0;
+}
+
 function extractPortalDashboardCounts() {
   const readSection = (selector) => {
     const container = document.querySelector(selector);
@@ -1971,6 +2031,18 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
   if (alreadyOnPortalHome) {
     console.log('[PortalPet] 이미 포털 홈에 있음 - 재방문 생략');
     await closeAnyPopups(page);
+    // (수정) 페이지를 다시 안 불러오면 예전에 읽었던 값을 그대로 다시 읽어올 뿐이라는 사용자
+    // 지적으로 추가 - 각 박스의 새로고침 아이콘을 눌러 최신 값을 받아온다. 아이콘을 못 찾으면
+    // (화면 구성이 바뀌었을 가능성) 안전하게 페이지 전체를 새로고침해서라도 최신 값을 보장한다.
+    const clickedIcons = await clickDashboardRefreshIcons(page);
+    if (!clickedIcons) {
+      await page.reload({ waitUntil: 'domcontentloaded' }).catch((e) =>
+        console.log('[PortalPet] 대시보드 새로고침(페이지 리로드) 실패(non-fatal):', e.message)
+      );
+      await closeAnyPopups(page);
+    } else {
+      await page.waitForTimeout(500); // 새로고침 아이콘 클릭 후 값이 갱신될 시간을 조금 준다
+    }
   } else {
     const portalUrl = buildPortalUrl(subdomain);
     console.log('[PortalPet] navigating to', portalUrl);
