@@ -12,6 +12,12 @@ const loginEngine = require('./engine/loginEngine');
 const { REGIONS } = require('./engine/regionMap');
 const { listBrowserProfiles } = require('./engine/browserProfiles');
 const { startDialogSuppressor, stopDialogSuppressor } = require('./engine/dialogSuppressor');
+const { startFileLogger, getLogFilePath } = require('./engine/fileLogger');
+
+// 배포판(패키지된 exe)은 콘솔 창이 없어서 console.log를 볼 방법이 없다 - 이번 세션에서 겪은
+// 여러 버그가 전부 npm start(터미널 보이는 개발 모드)에서 붙여받은 로그로만 진단 가능했다.
+// 트레이 메뉴의 "로그 폴더 열기"로 사용자가 이 파일을 쉽게 찾아 보내줄 수 있게 한다.
+startFileLogger(app.getPath('userData'));
 
 // Windows 알림에 "Electron" 대신 "PortalPet"으로 표시되도록 AppUserModelID를 지정한다
 // (package.json build.appId와 동일한 값 - 나중에 배포판이 그 id로 시작 메뉴 바로가기를 만듦).
@@ -175,6 +181,13 @@ function createTray() {
       { type: 'separator' },
       { label: '테스트: 결재/승인 알림 미리보기 (임의 값)', click: testDashboardNotification },
     ]),
+    { type: 'separator' },
+    // 문제가 생겼을 때 사용자가 개발자 도구 없이도 로그 파일을 바로 찾아 보낼 수 있도록.
+    { label: '로그 폴더 열기', click: () => {
+      const logPath = getLogFilePath();
+      if (logPath) shell.showItemInFolder(logPath);
+      else console.error('[PortalPet] 로그 파일이 아직 준비되지 않음');
+    } },
     { type: 'separator' },
     // (수정) "버전 x.x.x" 표시 + "새 버전 확인" 링크 열기 두 항목을, 버전/새 버전 확인 버튼/문의를
     // 한 곳에 모은 "프로그램 정보" 창 하나로 통합(사용자 요청).
