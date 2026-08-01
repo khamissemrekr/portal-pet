@@ -1504,6 +1504,14 @@ async function openEdufineApproval(page, subdomain, password, alreadyOnEdufine =
     await ensureOnPortalHome(page, subdomain);
     target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
   }
+  // (버그 수정) openNeisSubMenu는 나이스 진입 직후 매번 closeAnyPopupsForAWhile을 불러 공지
+  // 팝업을 닫아주는데, 이 함수는 그 대응이 빠져 있었다(사용자 재현: K-에듀파인 진입 시 공지
+  // 팝업 - 예: "국세청 소득자료 제출 안내" - 을 못 닫아서 그 아래 메뉴(업무관리/문서관리/
+  // 결재대기) 클릭이 전부 막힘, 스크린샷으로 확인됨). goToPortalMenu 자체도 한 번 닫아주긴
+  // 하지만 그 시점 이후에 늦게 뜨는 팝업은 못 잡는다(나이스에서 이미 확인된 것과 동일한 레이스) -
+  // alreadyOnEdufine 여부와 무관하게(이미 K-에듀파인에 있다가 다시 결재대기로 오는 경우도
+  // 포함) 몇 초간 지켜보며 닫는다.
+  await closeAnyPopupsForAWhile(target);
   await waitForEdufineReady(target);
   await selectEdufineJob(target, '업무관리');
   const topOk = await clickEdufineTopMenu(target, '문서관리');
