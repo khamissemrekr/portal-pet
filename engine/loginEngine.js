@@ -11,7 +11,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
-const { app } = require('electron');
+const { app, shell } = require('electron');
 const { buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
 
 // (수정) 엣지 지원 추가 - "PortalPet 전용 프로필"은 어떤 브라우저(channel)를 쓰느냐에 따라
@@ -1661,6 +1661,33 @@ async function isBrityMessengerLauncherPage(page) {
   }).catch(() => false);
 }
 
+/**
+ * (개선) 브리지 페이지는 로드된 뒤 서버에서 세션에 묶인 1회용 티켓(JWT)을 받아와 안 보이는
+ * iframe의 src를 "brityaltsso://imjwt=...&domain=...&id=...&type=1&browser=CHROME"로 채운다
+ * (실측 확인: 사용자가 페이지 소스를 직접 확인해줌) - 크롬이 이 iframe 탐색을 감지해서 OS에
+ * 등록된 brityaltsso:// 핸들러(Brity 메신저 데스크톱 앱)로 넘겨주는 방식. 이 티켓은 만료 시간
+ * (exp 클레임)이 있고 서버가 그 순간의 로그인 세션에 묶어서 새로 발급하는 것이라, 페이지를 아예
+ * 안 들르고 미리 만들어 둘 수는 없다 - 하지만 그 iframe이 뜨는 순간 값을 직접 읽어서, 크롬의
+ * iframe 탐색(및 authorizeCustomProtocolForOrigin으로 미리 허용해 둔 "외부 앱을 여시겠습니까"
+ * 확인창) 경로를 거치지 않고 Electron의 shell.openExternal로 우리가 직접 OS에 그 URL을 넘겨
+ * 실행할 수 있다. 이러면 브리지 탭을 "몇 초 기다렸다가 닫기"(고정 대기, 실측상 3초) 하는 대신
+ * 티켓이 실제로 나오는 즉시(보통 훨씬 빠름) 처리할 수 있고, 크롬의 커스텀 프로토콜 처리에
+ * 기대지 않아도 되니 더 확실하다.
+ */
+async function tryLaunchBrityMessengerDirectly(popup) {
+  try {
+    const handle = await popup.waitForSelector('iframe[src^="brityaltsso://"]', { timeout: 5000 });
+    const href = await handle.getAttribute('src');
+    if (!href) return false;
+    await shell.openExternal(href);
+    console.log('[PortalPet] brityaltsso:// 링크를 페이지에서 직접 추출해 메신저 실행 (고정 대기 없이)');
+    return true;
+  } catch (e) {
+    console.log('[PortalPet] brityaltsso:// 링크 직접 추출 실패(non-fatal, 기존 방식으로 대체):', e.message);
+    return false;
+  }
+}
+
 async function clickFirstMatchFollowingPopup(context, page, candidates, { timeout = 6000, exact = false } = {}) {
   for (const text of candidates) {
     let el;
@@ -1681,10 +1708,15 @@ async function clickFirstMatchFollowingPopup(context, page, candidates, { timeou
       await popup.waitForLoadState('domcontentloaded').catch(() => {});
       if (await isBrityMessengerLauncherPage(popup)) {
         console.log(`[PortalPet] "${text}" opened a Brity Messenger native-launch bridge tab (not a real screen) - keeping the original G-ONE tab, giving the native app time to launch before closing the bridge`);
-        // (수정) 0.6초는 너무 짧아서 brityaltsso://가 실제로 크롬 -> OS -> Brity 메신저 앱으로
-        // 넘어갈 시간이 부족했을 수 있다(실측 확인: 로그상 정상 동작했는데도 메신저가 안 뜸) -
-        // 넉넉히 3초 기다린 뒤 닫는다.
-        await popup.waitForTimeout(3000).catch(() => {});
+        // (개선) brityaltsso:// 링크를 직접 뽑아 shell.openExternal로 우리가 바로 실행할 수
+        // 있으면(tryLaunchBrityMessengerDirectly), 크롬의 커스텀 프로토콜 처리에 기대는 고정
+        // 대기가 필요 없다. 실패하면(화면 구성이 바뀌었을 가능성 등) 기존 방식대로 넉넉히
+        // 3초 기다린 뒤 닫는다 - 크롬 -> OS -> Brity 메신저 앱으로 넘어갈 시간이 부족하면
+        // (실측 확인: 로그상 정상 동작했는데도 메신저가 안 뜬 적 있음) 메신저가 안 뜰 수 있다.
+        const launchedDirectly = await tryLaunchBrityMessengerDirectly(popup);
+        if (!launchedDirectly) {
+          await popup.waitForTimeout(3000).catch(() => {});
+        }
         await popup.close().catch((e) => console.log('[PortalPet] closing messenger bridge tab failed (non-fatal):', e.message));
         return { page, found: true };
       }
