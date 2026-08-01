@@ -171,6 +171,22 @@ function stopHoverWatch() {
   hoverTimer = null;
 }
 
+// Windows 시작 시 자동 실행 - 트레이 메뉴 체크박스와 설정 창 체크박스 둘 다 같은 OS 설정
+// (app.getLoginItemSettings)을 그대로 읽고 쓴다. 함수로 묶어서 개발 모드(npm start) 우회
+// 로직(아래 주석)을 한 곳에서만 관리한다.
+function getAutoStartOnLogin() {
+  return app.getLoginItemSettings().openAtLogin;
+}
+function setAutoStartOnLogin(enabled) {
+  // 개발 모드(npm start)에서 이 옵션을 켜면 path가 electron.exe만 가리켜서(앱 경로 없이) 부팅 시
+  // Electron 기본 화면만 뜨는 문제가 있었다. app.isPackaged일 때만 기본값(process.execPath)을
+  // 쓰고, 개발 모드에서는 실제 앱 폴더를 args로 명시해 같은 문제가 재발하지 않게 한다.
+  const settings = app.isPackaged
+    ? { openAtLogin: enabled }
+    : { openAtLogin: enabled, path: process.execPath, args: [path.resolve(process.argv[1] || '.')] };
+  app.setLoginItemSettings(settings);
+}
+
 // ===== 트레이 =====
 function createTray() {
   tray = new Tray(path.join(__dirname, 'theme', 'tray-icon.png'));
@@ -184,16 +200,8 @@ function createTray() {
     // (수정) 사용자 요청으로 당장은 필요 없어서 숨김 - enterMiniMode/exitMiniMode 등 기능 코드는 그대로 둔다.
     // { label: '미니 모드', type: 'checkbox', checked: false, click: (item) => item.checked ? enterMiniMode() : exitMiniMode() },
     { type: 'separator' },
-    { label: 'Windows 시작 시 자동 실행', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
-      // 개발 모드(npm start)에서 이 옵션을 켜면 path가 electron.exe만 가리켜서(앱 경로 없이) 부팅 시
-      // Electron 기본 화면만 뜨는 문제가 있었다. app.isPackaged일 때만 기본값(process.execPath)을
-      // 쓰고, 개발 모드에서는 실제 앱 폴더를 args로 명시해 같은 문제가 재발하지 않게 한다.
-      click: (item) => {
-        const settings = app.isPackaged
-          ? { openAtLogin: item.checked }
-          : { openAtLogin: item.checked, path: process.execPath, args: [path.resolve(process.argv[1] || '.')] };
-        app.setLoginItemSettings(settings);
-      } },
+    { label: 'Windows 시작 시 자동 실행', type: 'checkbox', checked: getAutoStartOnLogin(),
+      click: (item) => setAutoStartOnLogin(item.checked) },
     // (임시/테스트용) 실제 포털 로그인 없이도 알림+배지가 어떻게 보이는지 바로 확인할 수 있도록
     // 임의 값으로 "증가" 상황을 흉내낸다. main.js가 그대로 패키징되는 electron-builder 특성상
     // 수동으로 지우지 않으면 배포판에도 남으므로, app.isPackaged로 개발 모드(npm start)에서만
@@ -243,7 +251,12 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
 
 // channel: 'chrome' | 'msedge' - 설정 창에서 브라우저를 바꾸면 그 브라우저의 프로필 목록을 다시 읽어온다.
 ipcMain.handle('list-browser-profiles', (_evt, channel) => listBrowserProfiles(channel || 'chrome'));
-ipcMain.handle('get-config', () => credentialStore.loadConfig());
+// autoStartOnLogin은 config.json이 아니라 OS 자체 설정(app.getLoginItemSettings)이라 여기서
+// 합쳐서 내려준다 - 설정 창이 매번 최신 상태를 그대로 보여줄 수 있도록.
+ipcMain.handle('get-config', () => ({
+  ...credentialStore.loadConfig(),
+  autoStartOnLogin: getAutoStartOnLogin(),
+}));
 
 ipcMain.handle('toggle-panel', () => togglePanel());
 // 메뉴 하단의 톱니 아이콘에서 설정 창을 바로 열 수 있도록(트레이 메뉴를 거치지 않고).
@@ -410,8 +423,11 @@ function sanitizeCustomLinks(customLinks) {
 ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
-  panelAutoCloseEnabled, panelAutoCloseSeconds,
+  panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin,
 }) => {
+  // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
+  setAutoStartOnLogin(!!autoStartOnLogin);
+
   const previous = credentialStore.loadConfig();
   // 비밀번호 칸을 비워두고 저장하면(지역/프로필만 바꾸는 경우) 기존 저장값을 그대로 둔다.
   const encryptedPasswordBase64 = password
