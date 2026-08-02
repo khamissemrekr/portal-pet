@@ -1928,77 +1928,41 @@ function minimizeNewlyOpenedNativeWindow({ timeoutMs = 20000 } = {}) {
   // 넘기면 인용부호 처리가 깨지기 쉽다. 그래서 -Command로 즉석 전달하는 대신, 스크립트를 임시
   // .ps1 파일로 저장한 뒤 -File로 그 경로만 넘긴다 - 인자가 파일 경로 하나뿐이라 인용부호 문제가
   // 생길 여지가 없다. 진단 메시지도 전부 ASCII로 바꿔서 파일 인코딩 문제 가능성도 없앴다.
-  // (수정, 사용자 재현: "최소화 때문인지 메신저 로그인이 제대로 되지 않은 것 같아") 실측 로그로
-  // 확인해보니 우리가 최소화한 첫 새 창이 "brity.launcher / LauncherForm"였다 - 이건 실제
-  // 메신저 채팅 창이 아니라, SSO 티켓을 받아 로그인을 마무리하고 진짜 메신저 앱으로 넘겨주는
-  // 부트스트랩/스플래시 창으로 보인다. 그 창을 로그인 처리 도중에 강제로 최소화해버려서 로그인
-  // 핸드오프가 제대로 안 끝났을 가능성이 크다 - "launcher"가 이름에 들어간 창은 최소화 대상에서
-  // 제외하고 그대로 두어 로그인을 마치게 한 뒤, 그다음에 뜨는 진짜 메신저 창을 최소화한다.
-  const excludeProcessNames = ['chrome', 'msedge', 'electron', 'portalpet', 'powershell', 'cmd'];
+  // (수정, 사용자 확인: 실제 실행 파일 경로가 C:\BrityWorks\BrityMessenger\BrityMessenger.exe
+  // 라는 것을 알려줌) "새로 나타나는 아무 창이나 잡는" 범용 방식은 먼저 뜨는 "brity.launcher"
+  // (로그인용 부트스트랩 창, 이제는 제외 대상)만 계속 걸리고, 정작 최소화해야 할 진짜 메신저
+  // 창은 20초 안에 못 잡고 타임아웃났다(실측 확인) - 창이 늦게 뜨는 건지, EnumWindows 스냅샷
+  // 비교 방식이 놓치는 건지 확실치 않았다. 이제 실제 프로세스 이름(BrityMessenger)을 정확히
+  // 알았으니, EnumWindows로 아무 창이나 뒤지는 대신 Get-Process로 그 이름의 프로세스를 직접
+  // 찾아 MainWindowHandle(그 프로세스의 메인 창 핸들, .NET이 알아서 찾아줌)을 최소화한다 -
+  // 훨씬 더 정확하고 단순하며, 로그인용 브리지/런처 창과 섞일 여지도 없다.
+  const targetProcessName = 'BrityMessenger';
   const script = `
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-using System.Text;
 public class PortalPetWin32 {
-  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
-  [DllImport("user32.dll", CharSet = CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }
 "@
 
-function Get-VisibleTopWindows {
-  $list = New-Object System.Collections.Generic.List[IntPtr]
-  $cb = {
-    param($hWnd, $lParam)
-    if ([PortalPetWin32]::IsWindowVisible($hWnd) -and [PortalPetWin32]::GetWindowTextLength($hWnd) -gt 0) {
-      $list.Add($hWnd) | Out-Null
-    }
-    return $true
-  }
-  [PortalPetWin32]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
-  return $list
-}
-
-$exclude = @(${excludeProcessNames.map((n) => `'${n}'`).join(',')})
-Write-Output "[minimize-watch] started, excluding: $($exclude -join ',')"
-$before = Get-VisibleTopWindows
-Write-Output "[minimize-watch] baseline window count: $($before.Count)"
+Write-Output "[minimize-watch] started, target process: ${targetProcessName}"
 $deadline = (Get-Date).AddMilliseconds(${timeoutMs})
 $done = $false
 while (-not $done -and (Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 300
-  $now = Get-VisibleTopWindows
-  foreach ($hwnd in $now) {
-    if ($before -notcontains $hwnd) {
-      $procId = 0
-      [PortalPetWin32]::GetWindowThreadProcessId($hwnd, [ref]$procId) | Out-Null
-      try {
-        $proc = Get-Process -Id $procId -ErrorAction Stop
-        $name = $proc.ProcessName.ToLower()
-        $sb = New-Object System.Text.StringBuilder 256
-        [PortalPetWin32]::GetWindowText($hwnd, $sb, 256) | Out-Null
-        Write-Output "[minimize-watch] new window: $name / $($sb.ToString())"
-        if (($exclude -notcontains $name) -and ($name -notlike '*launcher*')) {
-          [PortalPetWin32]::ShowWindow($hwnd, 6) | Out-Null
-          Write-Output "[minimize-watch] minimized: $name"
-          $done = $true
-          break
-        } else {
-          Write-Output "[minimize-watch] skipped (excluded): $name"
-        }
-      } catch {
-        Write-Output "[minimize-watch] error reading process: $($_.Exception.Message)"
-      }
+  $procs = Get-Process -Name '${targetProcessName}' -ErrorAction SilentlyContinue
+  foreach ($p in $procs) {
+    if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
+      Write-Output "[minimize-watch] found window: $($p.MainWindowTitle)"
+      [PortalPetWin32]::ShowWindow($p.MainWindowHandle, 6) | Out-Null
+      Write-Output "[minimize-watch] minimized: ${targetProcessName}"
+      $done = $true
+      break
     }
   }
-  $before = $now
 }
-if (-not $done) { Write-Output "[minimize-watch] timeout, no target window found" }
+if (-not $done) { Write-Output "[minimize-watch] timeout, ${targetProcessName} window not found" }
 `;
   let scriptPath = null;
   try {
