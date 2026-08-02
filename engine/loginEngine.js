@@ -1297,7 +1297,7 @@ async function clickEdufineTopMenu(page, menuName) {
 }
 
 /** K-에듀파인 메가메뉴(공용서식/품의등록 등)의 id에는 "pdvMegaMenu"가 포함된다. */
-async function clickEdufineMegaMenu(page, menuName) {
+async function clickEdufineMegaMenuPopup(page, menuName) {
   const handle = await page.evaluateHandle((n) => {
     const v = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.x >= 0; };
     const xs = [...document.querySelectorAll('[id*="pdvMegaMenu"]')]
@@ -1306,12 +1306,51 @@ async function clickEdufineMegaMenu(page, menuName) {
   }, menuName);
   const el = handle.asElement();
   if (!el) {
-    console.log(`[PortalPet] K-에듀파인 메뉴 "${menuName}"을 찾지 못함`);
+    console.log(`[PortalPet] K-에듀파인 메가메뉴 "${menuName}"을 찾지 못함`);
     return false;
   }
   await el.click();
   console.log(`[PortalPet] clicked K-에듀파인 mega menu "${menuName}"`);
   return true;
+}
+
+/**
+ * (2026-08-02 실측 확인) 사용자가 K-에듀파인 메인화면 전체 페이지 소스를 확인해줘서 좌측
+ * 메뉴(LNB)의 정확한 마크업을 알게 됐다: mainframe...LeftFrame.form.divLnb.form.gridMenu
+ * 안에 "기안"/"결재"/"공람"/"발송함"/"접수함"/"내문서함"/"문서함"/"문서현황" 같은 카테고리가
+ * Grid 행(gridrow_N)으로 렌더링되고, 클릭 가능한 영역은
+ * class="CellTreeItemControl celltreeitem"(id가 ".celltreeitem"으로 끝남, aria-label에
+ * 텍스트 + 끝에 공백 하나, 예: "결재 ")이다. 이 selector는 pdvMegaMenu 팝업보다 실측으로
+ * 직접 확인된 만큼 더 안정적이라, 카테고리/리프 이름으로 좌측 메뉴에서 먼저 찾아 클릭을
+ * 시도하고, 못 찾으면 기존 pdvMegaMenu 경로로 폴백한다.
+ */
+function findEdufineLnbMenuItemInPage(label) {
+  const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+  const isVisible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const items = [...document.querySelectorAll('[id*="LeftFrame"][id*="gridMenu"] [id$=".celltreeitem"]')];
+  const match = items.find((e) => norm(e.getAttribute('aria-label')) === label && isVisible(e));
+  if (!match) return null;
+  const r = match.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+async function clickEdufineLnbMenuItem(page, label) {
+  const clicked = await findAndMouseClick(page, findEdufineLnbMenuItemInPage, label);
+  if (clicked) {
+    console.log(`[PortalPet] clicked K-에듀파인 좌측메뉴(LNB) "${label}"`);
+    await page.waitForTimeout(600);
+  }
+  return clicked;
+}
+
+/** 좌측 메뉴(LNB)를 먼저 시도하고, 못 찾으면 기존 pdvMegaMenu 팝업 방식으로 폴백한다. */
+async function clickEdufineMegaMenu(page, menuName) {
+  if (await clickEdufineLnbMenuItem(page, menuName)) return true;
+  return clickEdufineMegaMenuPopup(page, menuName);
 }
 
 /**
@@ -1323,6 +1362,9 @@ async function clickEdufineMegaMenu(page, menuName) {
 async function ensureEdufineMegaMenuExpanded(page, leafLabel, categoryLabel) {
   const isLeafVisible = () => page.evaluate((n) => {
     const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const inLnb = [...document.querySelectorAll('[id*="LeftFrame"][id*="gridMenu"] [id$=".celltreeitem"]')]
+      .some((e) => { const r = e.getBoundingClientRect(); return norm(e.getAttribute('aria-label')) === n && r.width > 0 && r.height > 0; });
+    if (inLnb) return true;
     return [...document.querySelectorAll('[id*="pdvMegaMenu"]')].some((e) => {
       const r = e.getBoundingClientRect();
       return norm(e.textContent) === n && r.width > 0 && r.height > 0 && r.x >= 0;
@@ -1330,6 +1372,12 @@ async function ensureEdufineMegaMenuExpanded(page, leafLabel, categoryLabel) {
   }, leafLabel).catch(() => false);
 
   if (await isLeafVisible()) return true;
+
+  // (신규, 2026-08-02 실측 확인) 좌측 메뉴(LNB)에서 카테고리를 먼저 클릭해본다 - pdvMegaMenu
+  // 팝업보다 안정적으로 실측된 구조라 우선 시도한다.
+  if (await clickEdufineLnbMenuItem(page, categoryLabel)) {
+    if (await isLeafVisible()) return true;
+  }
 
   const handle = await page.evaluateHandle((n) => {
     const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
