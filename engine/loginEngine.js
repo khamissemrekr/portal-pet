@@ -1684,7 +1684,12 @@ async function isBrityMessengerLauncherPage(page) {
  */
 async function tryLaunchBrityMessengerDirectly(popup) {
   try {
-    const handle = await popup.waitForSelector('iframe[src^="brityaltsso://"]', { timeout: 5000 });
+    // (버그 수정) waitForSelector 기본값은 state:'visible'인데, 이 iframe은 페이지 자체가
+    // style="display: none;"으로 처음부터 숨겨서 쓰는 것(사용자가 확인해준 페이지 소스)이라
+    // 절대 "보이는" 상태가 될 수 없다 - 매번 5초 타임아웃으로 실패하고 있었다(사용자 재현
+    // 로그: "5 × locator resolved to hidden <iframe ...>"). DOM에 존재하기만 하면(attached)
+    // src 속성은 읽을 수 있으니 visible 요구를 없앤다.
+    const handle = await popup.waitForSelector('iframe[src^="brityaltsso://"]', { timeout: 5000, state: 'attached' });
     const href = await handle.getAttribute('src');
     if (!href) return false;
     await shell.openExternal(href);
