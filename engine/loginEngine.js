@@ -1928,11 +1928,13 @@ async function tryLaunchBrityMessengerDirectly(popup) {
 // G-ONE 좌측 GNB(협업포탈 아이콘 바) - 사용자가 실측 HTML로 제공: 화면이 일정/메일 등으로
 // 바뀌어도 항상 떠 있는 <div class="nav"><ul><li><button aria-label="...">...</button> 목록.
 // 상단 공용 네비게이션 바(.cl-navigationbar-text)는 화면에 따라 없을 수 있지만(실측 확인:
-// "일정" 화면) 이 좌측 GNB는 항상 있어서 더 안정적이다. "AI 대화·초안"은 G-ONE 기본 진입
-// 화면이라 이 GNB에서는 별도 라벨 없이 "Home" 버튼에 해당한다.
+// "일정" 화면) 이 좌측 GNB는 항상 있어서 더 안정적이다.
+// (수정, 사용자 확인) "AI 대화·초안"은 이 GNB에 전용 버튼이 없다 - "Home" 버튼을 누르면
+// 도착하는 G-ONE 홈 화면의 상단 네비게이션 바(.cl-navigationbar-text)에만 있는 탭이다.
+// 그래서 여기 매핑에는 포함하지 않고, openGoneSubMenu에서 "Home"으로 먼저 이동한 뒤
+// 상단 바에서 텍스트로 찾아 클릭한다.
 const GONE_GNB_ARIA_LABEL_BY_TEXT = {
   메신저: '메신저',
-  'AI 대화·초안': 'Home',
   일정: '일정',
   메일: '메일',
   '할 일': '할 일',
@@ -1944,6 +1946,47 @@ function locateGoneGnbButton(page, text) {
   const ariaLabel = GONE_GNB_ARIA_LABEL_BY_TEXT[text];
   if (!ariaLabel) return null;
   return page.locator(`.nav button[aria-label="${ariaLabel}"]`).first();
+}
+
+/**
+ * 요소 하나를 클릭하고, 그 결과로 새 탭이 뜨는지(또는 Brity 메신저 네이티브 브리지 탭인지)
+ * 지켜본 뒤 최종적으로 사용해야 할 page를 돌려준다. clickFirstMatchFollowingPopup과
+ * openGoneSubMenu의 "Home으로 먼저 이동" 단계가 동일한 로직을 공유하기 위해 추출했다.
+ */
+async function clickAndFollowPopup(context, page, el, label) {
+  const popupPromise = context.waitForEvent('page', { timeout: 2000 }).catch(() => null);
+  await el.click();
+  console.log(`[PortalPet] clicked "${label}", watching for a new tab...`);
+
+  const popup = await popupPromise;
+  if (popup) {
+    await popup.waitForLoadState('domcontentloaded').catch(() => {});
+    if (await isBrityMessengerLauncherPage(popup)) {
+      console.log(`[PortalPet] "${label}" opened a Brity Messenger native-launch bridge tab (not a real screen) - keeping the original G-ONE tab, giving the native app time to launch before closing the bridge`);
+      // (개선) brityaltsso:// 링크를 직접 뽑아 shell.openExternal로 우리가 바로 실행할 수
+      // 있으면(tryLaunchBrityMessengerDirectly), 크롬의 커스텀 프로토콜 처리에 기대는 고정
+      // 대기가 필요 없다. 실패하면(화면 구성이 바뀌었을 가능성 등) 기존 방식대로 넉넉히
+      // 3초 기다린 뒤 닫는다 - 크롬 -> OS -> Brity 메신저 앱으로 넘어갈 시간이 부족하면
+      // (실측 확인: 로그상 정상 동작했는데도 메신저가 안 뜬 적 있음) 메신저가 안 뜰 수 있다.
+      const launchedDirectly = await tryLaunchBrityMessengerDirectly(popup);
+      if (!launchedDirectly) {
+        await popup.waitForTimeout(3000).catch(() => {});
+      }
+      await popup.close().catch((e) => console.log('[PortalPet] closing messenger bridge tab failed (non-fatal):', e.message));
+      return page;
+    }
+    console.log(`[PortalPet] "${label}" click opened a new tab - switching to it and closing the old tab`);
+    if (sharedPage === page) sharedPage = popup;
+    mainServiceTabs.add(popup);
+    mainServiceTabs.delete(page);
+    popup.on('close', () => {
+      mainServiceTabs.delete(popup);
+      if (sharedPage === popup) sharedPage = null;
+    });
+    await page.close().catch((e) => console.log('[PortalPet] closing old tab failed (non-fatal):', e.message));
+    return popup;
+  }
+  return page;
 }
 
 async function clickFirstMatchFollowingPopup(context, page, candidates, { timeout = 6000, exact = false, preferGnb = false } = {}) {
@@ -1969,39 +2012,8 @@ async function clickFirstMatchFollowingPopup(context, page, candidates, { timeou
       }
     }
 
-    const popupPromise = context.waitForEvent('page', { timeout: 2000 }).catch(() => null);
-    await el.click();
-    console.log(`[PortalPet] clicked "${text}" (exact:${exact}), watching for a new tab...`);
-
-    const popup = await popupPromise;
-    if (popup) {
-      await popup.waitForLoadState('domcontentloaded').catch(() => {});
-      if (await isBrityMessengerLauncherPage(popup)) {
-        console.log(`[PortalPet] "${text}" opened a Brity Messenger native-launch bridge tab (not a real screen) - keeping the original G-ONE tab, giving the native app time to launch before closing the bridge`);
-        // (개선) brityaltsso:// 링크를 직접 뽑아 shell.openExternal로 우리가 바로 실행할 수
-        // 있으면(tryLaunchBrityMessengerDirectly), 크롬의 커스텀 프로토콜 처리에 기대는 고정
-        // 대기가 필요 없다. 실패하면(화면 구성이 바뀌었을 가능성 등) 기존 방식대로 넉넉히
-        // 3초 기다린 뒤 닫는다 - 크롬 -> OS -> Brity 메신저 앱으로 넘어갈 시간이 부족하면
-        // (실측 확인: 로그상 정상 동작했는데도 메신저가 안 뜬 적 있음) 메신저가 안 뜰 수 있다.
-        const launchedDirectly = await tryLaunchBrityMessengerDirectly(popup);
-        if (!launchedDirectly) {
-          await popup.waitForTimeout(3000).catch(() => {});
-        }
-        await popup.close().catch((e) => console.log('[PortalPet] closing messenger bridge tab failed (non-fatal):', e.message));
-        return { page, found: true };
-      }
-      console.log(`[PortalPet] "${text}" click opened a new tab - switching to it and closing the old tab`);
-      if (sharedPage === page) sharedPage = popup;
-      mainServiceTabs.add(popup);
-      mainServiceTabs.delete(page);
-      popup.on('close', () => {
-        mainServiceTabs.delete(popup);
-        if (sharedPage === popup) sharedPage = null;
-      });
-      await page.close().catch((e) => console.log('[PortalPet] closing old tab failed (non-fatal):', e.message));
-      return { page: popup, found: true };
-    }
-    return { page, found: true };
+    const resultPage = await clickAndFollowPopup(context, page, el, `${text} (exact:${exact})`);
+    return { page: resultPage, found: true };
   }
   return { page, found: false };
 }
@@ -2034,6 +2046,27 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
   // - clickFirstMatchFollowingPopup에 preferGnb:true로 넘겨 처리(아래).
   if (alreadyOnGone) {
     console.log('[PortalPet] 이미 G-ONE에 있음 - 포털 홈 재방문 없이 좌측 GNB로 바로 전환');
+    // (수정, 사용자 확인: "일정에서 AI 대화·초안으로 가려고 하는데... 이동하지 못했어") "AI
+    // 대화·초안"은 좌측 GNB에 전용 버튼이 없고, 좌측 GNB의 "Home" 버튼을 눌러야 도착하는
+    // G-ONE 홈 화면의 상단 네비게이션 바(.cl-navigationbar-text)에만 있다. 지금 화면에 그
+    // 상단 바가 없으면(예: "일정" 화면) "AI 대화·초안"을 아무리 찾아도 없으니, 좌측 GNB
+    // "Home" 버튼을 먼저 눌러 상단 바가 있는 화면으로 이동한 뒤 계속 진행한다.
+    if (candidates.includes('AI 대화·초안')) {
+      const hasTopNavBar = await target
+        .evaluate(() => document.querySelectorAll('.cl-navigationbar-text').length > 0)
+        .catch(() => false);
+      if (!hasTopNavBar) {
+        const homeBtn = target.locator('.nav button[aria-label="Home"]').first();
+        const homeVisible = await homeBtn.isVisible().catch(() => false);
+        if (homeVisible) {
+          console.log('[PortalPet] "AI 대화·초안"은 상단 네비게이션 바가 있는 화면에서만 찾을 수 있음 - 좌측 GNB "Home"으로 먼저 이동');
+          target = await clickAndFollowPopup(context, target, homeBtn, 'Home(GNB)');
+          await target.waitForTimeout(600).catch(() => {});
+        } else {
+          console.log('[PortalPet] 좌측 GNB "Home" 버튼도 못 찾음 - 그대로 진행(아래에서 못 찾으면 실패 로그)');
+        }
+      }
+    }
   } else {
     await ensureOnPortalHome(page, subdomain);
     target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
