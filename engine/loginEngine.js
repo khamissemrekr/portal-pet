@@ -1918,7 +1918,7 @@ async function isBrityMessengerLauncherPage(page) {
  * 정확한 프로세스명을 몰라도 되고, 못 찾아도(예: 이미 실행 중이라 전면 전환이 안 일어나는 경우)
  * 조용히 타임아웃으로 끝나 메신저 실행 자체에는 영향이 없다.
  */
-function minimizeNewlyOpenedNativeWindow({ timeoutMs = 15000 } = {}) {
+function minimizeNewlyOpenedNativeWindow({ timeoutMs = 20000 } = {}) {
   if (process.platform !== 'win32') return;
   // (수정, 사용자 재현: "[minimize-watch] 로그가 아예 안 보임", 종료 이벤트는 code=0으로 즉시
   // 찍힘) 스크립트가 아무 출력도 없이 code=0으로 곧바로 끝났다는 건 우리가 넘긴 -Command 문자열
@@ -1928,6 +1928,12 @@ function minimizeNewlyOpenedNativeWindow({ timeoutMs = 15000 } = {}) {
   // 넘기면 인용부호 처리가 깨지기 쉽다. 그래서 -Command로 즉석 전달하는 대신, 스크립트를 임시
   // .ps1 파일로 저장한 뒤 -File로 그 경로만 넘긴다 - 인자가 파일 경로 하나뿐이라 인용부호 문제가
   // 생길 여지가 없다. 진단 메시지도 전부 ASCII로 바꿔서 파일 인코딩 문제 가능성도 없앴다.
+  // (수정, 사용자 재현: "최소화 때문인지 메신저 로그인이 제대로 되지 않은 것 같아") 실측 로그로
+  // 확인해보니 우리가 최소화한 첫 새 창이 "brity.launcher / LauncherForm"였다 - 이건 실제
+  // 메신저 채팅 창이 아니라, SSO 티켓을 받아 로그인을 마무리하고 진짜 메신저 앱으로 넘겨주는
+  // 부트스트랩/스플래시 창으로 보인다. 그 창을 로그인 처리 도중에 강제로 최소화해버려서 로그인
+  // 핸드오프가 제대로 안 끝났을 가능성이 크다 - "launcher"가 이름에 들어간 창은 최소화 대상에서
+  // 제외하고 그대로 두어 로그인을 마치게 한 뒤, 그다음에 뜨는 진짜 메신저 창을 최소화한다.
   const excludeProcessNames = ['chrome', 'msedge', 'electron', 'portalpet', 'powershell', 'cmd'];
   const script = `
 Add-Type @"
@@ -1977,7 +1983,7 @@ while (-not $done -and (Get-Date) -lt $deadline) {
         $sb = New-Object System.Text.StringBuilder 256
         [PortalPetWin32]::GetWindowText($hwnd, $sb, 256) | Out-Null
         Write-Output "[minimize-watch] new window: $name / $($sb.ToString())"
-        if ($exclude -notcontains $name) {
+        if (($exclude -notcontains $name) -and ($name -notlike '*launcher*')) {
           [PortalPetWin32]::ShowWindow($hwnd, 6) | Out-Null
           Write-Output "[minimize-watch] minimized: $name"
           $done = $true
