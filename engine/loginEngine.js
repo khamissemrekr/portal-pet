@@ -11,6 +11,7 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
 const { app, shell } = require('electron');
 const { buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
 
@@ -1906,6 +1907,61 @@ async function isBrityMessengerLauncherPage(page) {
  * 티켓이 실제로 나오는 즉시(보통 훨씬 빠름) 처리할 수 있고, 크롬의 커스텀 프로토콜 처리에
  * 기대지 않아도 되니 더 확실하다.
  */
+/**
+ * (신규, 사용자 요청: "메신저가 실행될 때 최소화를 하도록 할 수 있을까?") Brity 메신저는
+ * shell.openExternal로 우리가 직접 켜든, 크롬의 커스텀 프로토콜 처리에 맡기든 완전히 별개의
+ * 네이티브 Windows 프로세스라 Playwright/CDP로는 그 창을 건드릴 수 없다(기존
+ * minimizeContextWindow는 CDP 기반이라 우리가 띄운 크롬/엣지 창에만 통함). Windows의
+ * user32.dll ShowWindow API를 PowerShell로 호출해, 메신저를 실행한 직후 "새로 전면에 뜨는
+ * 창"을 잠깐 감시하다가 우리 자신의 창(크롬/엣지/PortalPet 등)이 아니면 최소화한다 - 메신저의
+ * 정확한 프로세스명을 몰라도 되고, 못 찾아도(예: 이미 실행 중이라 전면 전환이 안 일어나는 경우)
+ * 조용히 타임아웃으로 끝나 메신저 실행 자체에는 영향이 없다.
+ */
+function minimizeNewlyOpenedNativeWindow({ timeoutMs = 6000 } = {}) {
+  if (process.platform !== 'win32') return;
+  const excludeProcessNames = ['chrome', 'msedge', 'electron', 'portalpet', 'powershell', 'cmd'];
+  const script = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class PortalPetWin32 {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+$exclude = @(${excludeProcessNames.map((n) => `'${n}'`).join(',')})
+$deadline = (Get-Date).AddMilliseconds(${timeoutMs})
+while ((Get-Date) -lt $deadline) {
+  Start-Sleep -Milliseconds 300
+  $hwnd = [PortalPetWin32]::GetForegroundWindow()
+  if ($hwnd -ne [IntPtr]::Zero) {
+    $procId = 0
+    [PortalPetWin32]::GetWindowThreadProcessId($hwnd, [ref]$procId) | Out-Null
+    try {
+      $proc = Get-Process -Id $procId -ErrorAction Stop
+      $name = $proc.ProcessName.ToLower()
+      if ($exclude -notcontains $name) {
+        [PortalPetWin32]::ShowWindow($hwnd, 6) | Out-Null
+        exit 0
+      }
+    } catch {}
+  }
+}
+`;
+  try {
+    const child = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', script], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+    console.log('[PortalPet] 메신저 실행 후 새로 전면에 뜨는 창 최소화 감시 시작');
+  } catch (e) {
+    console.log('[PortalPet] 새 창 최소화 스크립트 실행 실패(non-fatal):', e.message);
+  }
+}
+
 async function tryLaunchBrityMessengerDirectly(popup) {
   try {
     // (버그 수정) waitForSelector 기본값은 state:'visible'인데, 이 iframe은 페이지 자체가
@@ -1963,6 +2019,9 @@ async function clickAndFollowPopup(context, page, el, label) {
     await popup.waitForLoadState('domcontentloaded').catch(() => {});
     if (await isBrityMessengerLauncherPage(popup)) {
       console.log(`[PortalPet] "${label}" opened a Brity Messenger native-launch bridge tab (not a real screen) - keeping the original G-ONE tab, giving the native app time to launch before closing the bridge`);
+      // (신규, 사용자 요청) 메신저가 전면에 튀어나와 방해된다는 피드백 - 실행을 트리거하기 전에
+      // 미리 감시를 시작해서, 실제로 새 창이 전면에 뜨는 순간을 놓치지 않는다.
+      minimizeNewlyOpenedNativeWindow();
       // (개선) brityaltsso:// 링크를 직접 뽑아 shell.openExternal로 우리가 바로 실행할 수
       // 있으면(tryLaunchBrityMessengerDirectly), 크롬의 커스텀 프로토콜 처리에 기대는 고정
       // 대기가 필요 없다. 실패하면(화면 구성이 바뀌었을 가능성 등) 기존 방식대로 넉넉히
