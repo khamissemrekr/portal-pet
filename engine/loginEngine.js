@@ -2196,7 +2196,22 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
     }
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
+    // (수정, 사용자 요청: "일정 자동 실행할 때... 업무포털에 로그인한 다음에 새 탭을 열어서
+    // 일정을 열어야 좋을 것 같아") 원래는 로그인한 이 탭(포털 홈)을 그대로 G-ONE으로 밀어버리고,
+    // 그 안에서 "일정"을 누르면 또 새 탭이 열리면서 포털 홈이었던 이 탭은 닫혔다 - 그래서 나중에
+    // 결재 현황 자동 확인(checkPortalDashboard)이 포털 홈 탭을 못 찾아 새로 하나 더 열어야
+    // 했다. 포털 홈 탭(page)은 그대로 두고, G-ONE은 처음부터 새 탭에서 연다 - 그러면 포털 홈
+    // 탭이 계속 남아있어서 나중에 결재 현황 확인이 새 탭을 열 필요가 없다.
+    const goneUrl = await readPortalMenuUrl(page, 'G-ONE');
+    if (goneUrl) {
+      target = await openFreshTab(context);
+      console.log(`[PortalPet] portal menu "G-ONE" -> ${goneUrl} (포털 홈 탭은 유지하고 새 탭에서 진입)`);
+      await gotoWithRetry(target, goneUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] goto failed:', e.message));
+      await closeAnyPopupsForAWhile(target);
+    } else {
+      // SSO 링크를 못 읽었으면(드묾) 기존 방식대로 안전하게 폴백 - 이 탭에서 그대로 이동.
+      target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
+    }
     await target.waitForTimeout(900);
   }
   // G-ONE 기본 진입 화면(AI 대화·초안 탭)에 공지 팝업이 뜨는 경우가 있다(실측 확인:
