@@ -1959,39 +1959,54 @@ const TAB_GROUP = { ...SERVICE_SYSTEM, portal_home: 'portal_home' };
 const PORTAL_MENU_LABEL_BY_SYSTEM = { neis: '나이스', edufine: 'K-에듀파인', gone: 'G-ONE', edmgr: '교육데이터포털' };
 
 /**
- * (신규, 사용자 요청) "공문 결재"를 누르면 새 탭이 업무포털 메인을 먼저 보여줬다가 K-에듀파인
- * 으로 넘어가는 게 불필요한 중간 화면으로 보인다는 피드백 - 처음 프로그램을 실행할 때부터
- * 이미 열려 있는 "업무포털 메인" 탭이 따로 있는데도, 새로 여는 탭이 그걸 무시하고 자기 안에서
- * 또 한 번 업무포털 메인을 거쳐갔기 때문이다. 이 브라우저 컨텍스트 안에 이미 로그인된 업무포털
- * 메인 탭이 있으면, 그 탭에서 목적 시스템의 SSO 링크(a.menuBtn)만 읽어와 이번에 새로 연
- * targetPage에 곧바로 적용한다 - 쿠키/세션은 탭과 무관하게 브라우저 컨텍스트 전체가 공유하므로
- * 안전하다. 성공하면 targetPage가 이미 목적 시스템에 도착한 상태가 되므로, 호출 쪽에서
- * alreadyInTargetSystem을 true로 바꿔 이후 로직이 기존 "이미 그 시스템에 있음" 경로를 그대로
- * 타게 한다. 적당한 탭을 못 찾거나 실패하면 false를 돌려줘 기존 방식(포털 홈부터 재방문)으로
- * 안전하게 폴백한다.
+ * (신규, 사용자 요청) 이 브라우저 컨텍스트 안에 이미 로그인된 채로 열려 있는 "업무포털 메인"
+ * 탭이 있으면 찾아 돌려준다(없으면 null). launchService가 새 탭을 열 때 또 업무포털 메인부터
+ * 방문하는 대신 이 탭을 재사용/참조하기 위한 공용 헬퍼 - excludePage로 지금 막 새로 연(아직
+ * 빈) 탭 자신은 후보에서 제외한다.
  */
-async function tryEnterSystemFromExistingPortalHome(context, targetPage, subdomain, targetSystem) {
-  const label = PORTAL_MENU_LABEL_BY_SYSTEM[targetSystem];
-  if (!label) return false;
+async function findExistingPortalHomePage(context, subdomain, excludePage = null) {
   for (const p of context.pages()) {
-    if (p.isClosed() || p === targetPage) continue;
+    if (p.isClosed() || p === excludePage) continue;
     let host = '';
     try { host = currentHostname(p); } catch { continue; }
     if (!host.endsWith('.eduptl.kr')) continue;
     const menuReady = await p.waitForSelector('a.menuBtn', { timeout: 1500 }).then(() => true).catch(() => false);
     if (!menuReady) continue;
-    const url = await readPortalMenuUrl(p, label);
-    if (!url) continue;
-    console.log(`[PortalPet] 이미 열려 있는 업무포털 메인 탭에서 "${label}" SSO 링크를 읽음 -> 새 탭에 바로 적용`);
-    const navigated = await gotoWithRetry(targetPage, url, { waitUntil: 'domcontentloaded' })
-      .then(() => true)
-      .catch((e) => {
-        console.log('[PortalPet] SSO 링크로 새 탭 이동 실패 - 기존 방식(포털 홈 재방문)으로 폴백:', e.message);
-        return false;
-      });
-    if (!navigated) return false;
-    await closeAnyPopupsForAWhile(targetPage);
-    return isOnSystem(targetPage, targetSystem, subdomain);
+    return p;
+  }
+  return null;
+}
+
+/**
+ * (신규, 사용자 요청) "공문 결재"를 누르면 새 탭이 업무포털 메인을 먼저 보여줬다가 K-에듀파인
+ * 으로 넘어가는 게 불필요한 중간 화면으로 보인다는 피드백 - 처음 프로그램을 실행할 때부터
+ * 이미 열려 있는 "업무포털 메인" 탭이 따로 있는데도, 새로 여는 탭이 그걸 무시하고 자기 안에서
+ * 또 한 번 업무포털 메인을 거쳐갔기 때문이다. findExistingPortalHomePage로 찾은 탭에서 목적
+ * 시스템의 SSO 링크(a.menuBtn)만 읽어와 이번에 새로 연 targetPage에 곧바로 적용한다 -
+ * 쿠키/세션은 탭과 무관하게 브라우저 컨텍스트 전체가 공유하므로 안전하다. 성공하면 targetPage가
+ * 이미 목적 시스템에 도착한 상태가 되므로, 호출 쪽에서 alreadyInTargetSystem을 true로 바꿔
+ * 이후 로직이 기존 "이미 그 시스템에 있음" 경로를 그대로 타게 한다. 적당한 탭을 못 찾거나
+ * 실패하면 false를 돌려줘 기존 방식(포털 홈부터 재방문)으로 안전하게 폴백한다.
+ */
+async function tryEnterSystemFromExistingPortalHome(context, targetPage, subdomain, targetSystem) {
+  const label = PORTAL_MENU_LABEL_BY_SYSTEM[targetSystem];
+  if (!label) return false;
+  const source = await findExistingPortalHomePage(context, subdomain, targetPage);
+  if (source) {
+    const url = await readPortalMenuUrl(source, label);
+    if (url) {
+      console.log(`[PortalPet] 이미 열려 있는 업무포털 메인 탭에서 "${label}" SSO 링크를 읽음 -> 새 탭에 바로 적용`);
+      const navigated = await gotoWithRetry(targetPage, url, { waitUntil: 'domcontentloaded' })
+        .then(() => true)
+        .catch((e) => {
+          console.log('[PortalPet] SSO 링크로 새 탭 이동 실패 - 기존 방식(포털 홈 재방문)으로 폴백:', e.message);
+          return false;
+        });
+      if (navigated) {
+        await closeAnyPopupsForAWhile(targetPage);
+        return isOnSystem(targetPage, targetSystem, subdomain);
+      }
+    }
   }
   return false;
 }
@@ -2216,8 +2231,24 @@ function extractPortalDashboardCounts() {
 async function checkPortalDashboard(subdomain, password, browserProfile = null, browserChannel = 'chrome') {
   console.log(`[PortalPet] checkPortalDashboard(${subdomain}, ${browserChannel})`);
   const { context, isNew } = await getContext(browserProfile, subdomain, browserChannel);
-  const openNewTab = await shouldOpenNewTabFor('portal_home', subdomain);
-  const page = openNewTab ? await openFreshTab(context) : await getPage(context);
+
+  // (신규, 사용자 요청) shouldOpenNewTabFor는 "마지막으로 쓴 탭"(sharedPage)만 보고 판단하는데,
+  // 결재 현황 자동 확인 시점에 sharedPage가 마침 다른 시스템(K-에듀파인 등)에 가 있으면 이미
+  // 다른 탭에 "업무포털 메인"이 열려 있는데도 무시하고 또 새 탭을 열어 업무포털 메인을 다시
+  // 방문했다. 컨텍스트 전체에서 이미 로그인된 업무포털 메인 탭을 먼저 찾아보고, 있으면 새 탭을
+  // 열지 않고 그 탭을 그대로 재사용한다.
+  const existingPortalHome = await findExistingPortalHomePage(context, subdomain);
+  let page;
+  if (existingPortalHome) {
+    console.log('[PortalPet] 이미 열려 있는 업무포털 메인 탭을 찾음 - 새 탭을 열지 않고 재사용');
+    page = existingPortalHome;
+    sharedPage = page;
+    mainServiceTabs.add(page);
+    await installPopupWatcher(page);
+  } else {
+    const openNewTab = await shouldOpenNewTabFor('portal_home', subdomain);
+    page = openNewTab ? await openFreshTab(context) : await getPage(context);
+  }
   await closeExtraPages(context, page);
 
   // (수정) 사용자 요청 - 메신저/일정 자동 실행을 꺼놔도 결재 현황 자동 확인 때문에 브라우저가
