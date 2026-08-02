@@ -1995,9 +1995,25 @@ async function refocusIgnoringLatecomers(context, target, { wait = 900 } = {}) {
  */
 async function openGoneSubMenu(context, page, subdomain, candidates, password, alreadyOnGone = false) {
   let target = page;
-  if (alreadyOnGone) {
+  // (버그 수정, 사용자 재현: "일정" 탭에서 "AI 대화·초안" 클릭 시 이동 안 됨) G-ONE 하위 화면 중
+  // "일정"(gdp-copilot.goe.go.kr)처럼 완전히 다른 호스트로 옮겨가는 화면에는 다른 하위 메뉴로
+  // 갈아탈 때 클릭하는 상단 공용 네비게이션 바(AI 대화·초안/메일/일정 등 라벨)가 아예 없다.
+  // isOnSystem은 이런 화면도 "이미 G-ONE 안"으로 간주해 alreadyOnGone=true를 넘기지만, 그
+  // 상태로 바로 다른 후보 텍스트를 찾으려 하면 네비게이션 바 자체가 없어서 못 찾고 "이동 못 함"
+  // 으로 끝난다 - alreadyOnGone이어도 실제로 네비게이션 바가 있는 화면인지 한 번 더 확인해서,
+  // 없으면 포털 홈을 거쳐 네비게이션 바가 있는 G-ONE 공용 화면으로 다시 들어간다.
+  const hasNavBar = alreadyOnGone
+    ? await page
+        .evaluate(() => document.querySelectorAll('.cl-navigationbar-text').length > 0)
+        .catch(() => false)
+    : false;
+
+  if (alreadyOnGone && hasNavBar) {
     console.log('[PortalPet] 이미 G-ONE에 있음 - 포털 홈 재방문 생략');
   } else {
+    if (alreadyOnGone) {
+      console.log('[PortalPet] G-ONE 계열이지만 상단 네비게이션 바가 없는 화면(예: 일정) - 네비게이션 바가 있는 G-ONE 공용 화면으로 다시 진입');
+    }
     await ensureOnPortalHome(page, subdomain);
     target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
     await target.waitForTimeout(900);
