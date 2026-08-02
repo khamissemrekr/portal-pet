@@ -2354,10 +2354,27 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // 그 탭 안에서 처리됨 - 나이스 복무/출장 신청과 같은 방식).
   const existingSystemTab = targetSystem ? await findExistingSystemTabPage(context, subdomain, targetSystem) : null;
 
+  // (버그 수정, 사용자 재현: "업무포털 메인이 두 번 뜨고 있어") "포털 홈 탭은 그대로 두고
+  // G-ONE은 새 탭에서 연다"로 바꾼 뒤(일정 자동 실행 등), 로그인했던 원래 포털 홈 탭이 계속
+  // 남아있게 됐다 - 그런데 sharedPage는 그사이 G-ONE/일정 탭으로 바뀌어 있어서, 이후 메뉴에서
+  // "업무포털 메인"을 누르면 shouldOpenNewTabFor가 sharedPage(=일정 탭)만 보고 "그룹이 다르니
+  // 새 탭"으로 판단해 또 다른 포털 홈 탭을 새로 열었다 - 결과적으로 포털 홈 탭이 두 개가 됐다.
+  // portal_home은 targetSystem이 없어(SERVICE_SYSTEM에 없음) existingSystemTab 검사를 안
+  // 타므로, 여기서 따로 findExistingPortalHomePage로 이미 열려 있는 포털 홈 탭을 찾아 재사용한다
+  // (checkPortalDashboard가 쓰는 것과 동일한 헬퍼).
+  const existingPortalHomeTab =
+    serviceKey === 'portal_home' ? await findExistingPortalHomePage(context, subdomain) : null;
+
   let page;
   if (existingSystemTab) {
     console.log(`[PortalPet] 이미 ${targetSystem} 탭이 열려 있음 - 새 탭을 열지 않고 그 탭을 재사용`);
     page = existingSystemTab;
+    sharedPage = page;
+    mainServiceTabs.add(page);
+    await installPopupWatcher(page);
+  } else if (existingPortalHomeTab) {
+    console.log('[PortalPet] 이미 열려 있는 업무포털 메인 탭을 찾음 - 새 탭을 열지 않고 재사용');
+    page = existingPortalHomeTab;
     sharedPage = page;
     mainServiceTabs.add(page);
     await installPopupWatcher(page);
@@ -2381,7 +2398,13 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     await closeNeisRequestPopup(page);
   }
 
-  let alreadyInTargetSystem = targetSystem ? await isOnSystem(page, targetSystem, subdomain) : false;
+  // (수정) existingPortalHomeTab을 재사용하는 경우(위) 이미 그 탭이 포털 홈 메뉴까지 로드된
+  // 상태임이 findExistingPortalHomePage에서 이미 확인됐다 - portal_home은 targetSystem이 없어
+  // isOnSystem 검사 대상이 아니므로, 여기서 따로 true로 잡아줘야 아래에서 불필요하게 포털
+  // URL로 다시 이동(재로딩)하지 않는다.
+  let alreadyInTargetSystem = targetSystem
+    ? await isOnSystem(page, targetSystem, subdomain)
+    : !!existingPortalHomeTab;
 
   let loggedIn = true;
 
