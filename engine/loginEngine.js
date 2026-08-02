@@ -1955,6 +1955,47 @@ const SERVICE_SYSTEM = {
 // G-ONE과 서로 넘나들 때만 새 탭을 연다(사용자 요청: 같은 시스템 안에서는 새 탭 대신 현재 탭).
 const TAB_GROUP = { ...SERVICE_SYSTEM, portal_home: 'portal_home' };
 
+// 업무포털 메인의 a.menuBtn 텍스트에 포함된 시스템별 라벨 (goToPortalMenu가 쓰는 것과 동일).
+const PORTAL_MENU_LABEL_BY_SYSTEM = { neis: '나이스', edufine: 'K-에듀파인', gone: 'G-ONE', edmgr: '교육데이터포털' };
+
+/**
+ * (신규, 사용자 요청) "공문 결재"를 누르면 새 탭이 업무포털 메인을 먼저 보여줬다가 K-에듀파인
+ * 으로 넘어가는 게 불필요한 중간 화면으로 보인다는 피드백 - 처음 프로그램을 실행할 때부터
+ * 이미 열려 있는 "업무포털 메인" 탭이 따로 있는데도, 새로 여는 탭이 그걸 무시하고 자기 안에서
+ * 또 한 번 업무포털 메인을 거쳐갔기 때문이다. 이 브라우저 컨텍스트 안에 이미 로그인된 업무포털
+ * 메인 탭이 있으면, 그 탭에서 목적 시스템의 SSO 링크(a.menuBtn)만 읽어와 이번에 새로 연
+ * targetPage에 곧바로 적용한다 - 쿠키/세션은 탭과 무관하게 브라우저 컨텍스트 전체가 공유하므로
+ * 안전하다. 성공하면 targetPage가 이미 목적 시스템에 도착한 상태가 되므로, 호출 쪽에서
+ * alreadyInTargetSystem을 true로 바꿔 이후 로직이 기존 "이미 그 시스템에 있음" 경로를 그대로
+ * 타게 한다. 적당한 탭을 못 찾거나 실패하면 false를 돌려줘 기존 방식(포털 홈부터 재방문)으로
+ * 안전하게 폴백한다.
+ */
+async function tryEnterSystemFromExistingPortalHome(context, targetPage, subdomain, targetSystem) {
+  const label = PORTAL_MENU_LABEL_BY_SYSTEM[targetSystem];
+  if (!label) return false;
+  for (const p of context.pages()) {
+    if (p.isClosed() || p === targetPage) continue;
+    let host = '';
+    try { host = currentHostname(p); } catch { continue; }
+    if (!host.endsWith('.eduptl.kr')) continue;
+    const menuReady = await p.waitForSelector('a.menuBtn', { timeout: 1500 }).then(() => true).catch(() => false);
+    if (!menuReady) continue;
+    const url = await readPortalMenuUrl(p, label);
+    if (!url) continue;
+    console.log(`[PortalPet] 이미 열려 있는 업무포털 메인 탭에서 "${label}" SSO 링크를 읽음 -> 새 탭에 바로 적용`);
+    const navigated = await gotoWithRetry(targetPage, url, { waitUntil: 'domcontentloaded' })
+      .then(() => true)
+      .catch((e) => {
+        console.log('[PortalPet] SSO 링크로 새 탭 이동 실패 - 기존 방식(포털 홈 재방문)으로 폴백:', e.message);
+        return false;
+      });
+    if (!navigated) return false;
+    await closeAnyPopupsForAWhile(targetPage);
+    return isOnSystem(targetPage, targetSystem, subdomain);
+  }
+  return false;
+}
+
 /**
  * PortalPet에서 서비스 버튼 클릭 시 호출되는 진입점.
  */
@@ -1980,12 +2021,18 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   }
 
   const targetSystem = SERVICE_SYSTEM[serviceKey] || null;
-  const alreadyInTargetSystem = targetSystem ? await isOnSystem(page, targetSystem, subdomain) : false;
+  let alreadyInTargetSystem = targetSystem ? await isOnSystem(page, targetSystem, subdomain) : false;
 
   let loggedIn = true;
 
   if (alreadyInTargetSystem) {
     console.log(`[PortalPet] 이미 ${targetSystem}에 있음 - 포털 홈 재방문 없이 바로 하위 메뉴로 이동`);
+  } else if (targetSystem && await tryEnterSystemFromExistingPortalHome(context, page, subdomain, targetSystem)) {
+    // (신규, 사용자 요청) 다른 탭에 이미 열려 있던 업무포털 메인에서 SSO 링크를 읽어 이 탭에
+    // 바로 적용했다 - 포털 홈을 다시 거치지 않았으니 이후 로직도 "이미 목적 시스템에 있음"
+    // 경로를 그대로 탄다(각 open* 함수의 alreadyOn* 분기 재사용).
+    console.log(`[PortalPet] 다른 탭의 업무포털 메인에서 바로 ${targetSystem}(으)로 진입함 - 이 탭에서는 포털 홈 재방문 생략`);
+    alreadyInTargetSystem = true;
   } else {
     const portalUrl = buildPortalUrl(subdomain);
     console.log('[PortalPet] navigating to', portalUrl);
