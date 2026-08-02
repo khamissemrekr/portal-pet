@@ -1936,33 +1936,60 @@ function minimizeNewlyOpenedNativeWindow({ timeoutMs = 20000 } = {}) {
   // 알았으니, EnumWindows로 아무 창이나 뒤지는 대신 Get-Process로 그 이름의 프로세스를 직접
   // 찾아 MainWindowHandle(그 프로세스의 메인 창 핸들, .NET이 알아서 찾아줌)을 최소화한다 -
   // 훨씬 더 정확하고 단순하며, 로그인용 브리지/런처 창과 섞일 여지도 없다.
+  // (수정, 사용자 재현: "최소화는 실패한 것 같아" - 로그에는 "minimized: BrityMessenger"가
+  // 정상적으로 찍혔는데도 실제로는 창이 그대로 보임) ShowWindow 호출 자체는 성공했지만 화면엔
+  // 반영이 안 된 것으로 보아, 앱이 자기 초기화 과정 중에 스스로 창을 다시 활성화/복원하면서
+  // 우리가 최소화한 걸 덮어썼을 가능성이 크다(런처 -> 로그인 -> 메인 창 전환 과정에서 흔한
+  // 패턴). 그래서 한 번 최소화하고 끝내는 대신, ShowWindow와 함께 WM_SYSCOMMAND/SC_MINIMIZE
+  // 메시지도 같이 보내고(앱이 자체적으로 처리하는 "최소화 버튼 눌림" 이벤트와 동일), 몇 초간
+  // 계속 최소화 상태(IsIconic)인지 확인해서 다시 복원되면 즉시 재최소화한다.
   const targetProcessName = 'BrityMessenger';
+  const holdMs = 8000;
   const script = `
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public class PortalPetWin32 {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 }
 "@
 
+function Minimize-TargetWindow($hwnd) {
+  [PortalPetWin32]::PostMessage($hwnd, 0x0112, [IntPtr]0xF020, [IntPtr]::Zero) | Out-Null
+  [PortalPetWin32]::ShowWindow($hwnd, 6) | Out-Null
+}
+
 Write-Output "[minimize-watch] started, target process: ${targetProcessName}"
 $deadline = (Get-Date).AddMilliseconds(${timeoutMs})
-$done = $false
-while (-not $done -and (Get-Date) -lt $deadline) {
+$foundHandle = [IntPtr]::Zero
+while ($foundHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 300
   $procs = Get-Process -Name '${targetProcessName}' -ErrorAction SilentlyContinue
   foreach ($p in $procs) {
     if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
+      $foundHandle = $p.MainWindowHandle
       Write-Output "[minimize-watch] found window: $($p.MainWindowTitle)"
-      [PortalPetWin32]::ShowWindow($p.MainWindowHandle, 6) | Out-Null
-      Write-Output "[minimize-watch] minimized: ${targetProcessName}"
-      $done = $true
       break
     }
   }
 }
-if (-not $done) { Write-Output "[minimize-watch] timeout, ${targetProcessName} window not found" }
+if ($foundHandle -ne [IntPtr]::Zero) {
+  Minimize-TargetWindow $foundHandle
+  Write-Output "[minimize-watch] minimized: ${targetProcessName}"
+  $holdDeadline = (Get-Date).AddMilliseconds(${holdMs})
+  while ((Get-Date) -lt $holdDeadline) {
+    Start-Sleep -Milliseconds 400
+    if (-not ([PortalPetWin32]::IsIconic($foundHandle))) {
+      Minimize-TargetWindow $foundHandle
+      Write-Output "[minimize-watch] re-minimized (was restored by the app itself)"
+    }
+  }
+  Write-Output "[minimize-watch] done"
+} else {
+  Write-Output "[minimize-watch] timeout, ${targetProcessName} window not found"
+}
 `;
   let scriptPath = null;
   try {
