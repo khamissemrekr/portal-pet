@@ -933,6 +933,26 @@ function findTopmostDialogCloseButtonInPage() {
  * 같은 실제 업무 확인창도 같은 ChildFrame/btn_POP_* 구조를 재사용할 가능성이 있는데, 그런
  * 확인창은 id가 noticePopup 패턴을 안 쓸 것이므로(추정) 이 좁은 범위에 걸리지 않는다.
  */
+/**
+ * (신규, 사용자 제공 K-에듀파인 "웹접근성 안내" - X-internet 화면 키보드 이용 안내) Alt+End를
+ * 누르면 팝업을 닫을 수 있다고 안내돼 있다. findNexacroNoticePopupCloseButtonInPage와 동일한
+ * 안전 조건(인증서 로그인 화면이 아님, id에 "noticePopup"이 포함된 컨테이너가 실제로 화면에
+ * 보임)만 재확인하고, 실제로 닫을 버튼은 찾지 않는다 - closeAnyPopupsCore가 Alt+End를 눌러도
+ * 되는 상황인지, 누른 뒤 팝업이 실제로 사라졌는지 판단하는 용도.
+ */
+function isNexacroNoticePopupPresentInPage() {
+  const isVisible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  if (isVisible(document.querySelector('#btnLgn')) || isVisible(document.querySelector('input[name="certPassword"]'))) {
+    return false;
+  }
+  return [...document.querySelectorAll('[id*="noticePopup"]')].some(isVisible);
+}
+
 function findNexacroNoticePopupCloseButtonInPage() {
   const isVisible = (e) => {
     if (!e) return false;
@@ -997,6 +1017,26 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
     // K-에듀파인(Nexacro 프레임워크)의 공지사항 팝업은 ".cl-dialog"를 안 써서 위 경로로는 못
     // 잡는다(사용자가 실제 DOM을 확인해준 결과 확인 - id에 "noticePopup"이 포함된 별개의 창
     // 구조). id=noticePopup* 범위로 엄격히 좁혀서 찾는다(아래 함수 설명 참고).
+
+    // (신규, 사용자 제공 K-에듀파인 "웹접근성 안내" - X-internet 키보드 이용 안내) Alt+End를
+    // 누르면 팝업을 닫을 수 있다고 안내돼 있다. DOM에서 btn_POP_Close/btn_POP_Confirm 버튼을
+    // 찾아 좌표를 클릭하는 아래 기존 방식보다 단순하고 안전하다 - 안전 조건은
+    // findNexacroNoticePopupCloseButtonInPage와 동일(id에 "noticePopup"이 포함된 컨테이너로만
+    // 판단 범위를 좁혀, 같은 구조를 재사용할 수 있는 실제 업무 확인창은 건드리지 않음)하게
+    // 재사용한다. Alt+End를 눌러도 팝업이 그대로 남아 있으면 곧바로 아래 기존 클릭 경로로
+    // 폴백한다.
+    const canTryAltEnd = await page.evaluate(isNexacroNoticePopupPresentInPage).catch(() => false);
+    if (canTryAltEnd) {
+      await page.keyboard.press('Alt+End').catch(() => {});
+      await page.waitForTimeout(150);
+      const stillThereNexacro = await page.evaluate(isNexacroNoticePopupPresentInPage).catch(() => false);
+      if (!stillThereNexacro) {
+        console.log('[PortalPet] closed a Nexacro notice popup via Alt+End key (K-에듀파인 웹접근성 단축키)');
+        await page.waitForTimeout(150);
+        continue;
+      }
+    }
+
     const closedNexacroNotice = await findAndMouseClick(page, findNexacroNoticePopupCloseButtonInPage);
     if (closedNexacroNotice) {
       console.log('[PortalPet] closed a Nexacro notice popup (K-에듀파인 등)');
