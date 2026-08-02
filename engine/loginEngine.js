@@ -2278,8 +2278,28 @@ async function findExistingPortalHomePage(context, subdomain, excludePage = null
     try { host = currentHostname(p); } catch { continue; }
     if (!host.endsWith('.eduptl.kr')) continue;
     const menuReady = await p.waitForSelector('a.menuBtn', { timeout: 1500 }).then(() => true).catch(() => false);
-    if (!menuReady) continue;
-    return p;
+    if (menuReady) return p;
+    // (버그 수정, 사용자 재현: "업무포털 메인이 두 번 뜨고 있어") 결재 현황 자동 확인은 기본
+    // 30분마다 실행되는데, 그 사이 백그라운드에 오래 방치된 포털 홈 탭은 idle 세션 만료 등으로
+    // a.menuBtn이 당장 안 보일 수 있다. 예전엔 여기서 바로 포기하고 다음 탭을 봤는데, eduptl.kr
+    // 탭이 이거 하나뿐이면 결국 못 찾은 것으로 처리돼 호출 쪽이 새 탭을 하나 더 열었다 - 그래서
+    // 방치됐던 탭(로그인 화면 등으로 밀려나 있음) + 새로 연 탭, 둘 다 살아남아 포털 홈이 2개가
+    // 됐다. 호스트가 맞으면 포기하지 않고 그 탭에서 포털 홈으로 다시 이동시켜(필요하면 재로그인
+    // 포함, launchService의 로그인 로직과 별개로 이미 로그인된 세션이면 SSO로 바로 통과됨)
+    // 되살려본다 - 그래도 안 되면 이 탭은 넘기고 계속 다음 탭을 찾는다.
+    console.log('[PortalPet] eduptl.kr 탭을 찾았지만 a.menuBtn이 바로 안 보임(idle 세션 만료 추정) - 포털 홈으로 다시 이동해 되살려봄:', p.url());
+    const revived = await gotoWithRetry(p, buildPortalUrl(subdomain), { waitUntil: 'domcontentloaded' })
+      .then(() => true)
+      .catch((e) => {
+        console.log('[PortalPet] 방치된 포털 홈 탭 되살리기 실패 - 이 탭은 포기하고 계속 찾음:', e.message);
+        return false;
+      });
+    if (!revived) continue;
+    const menuReadyAfterRevive = await p.waitForSelector('a.menuBtn', { timeout: 5000 }).then(() => true).catch(() => false);
+    if (menuReadyAfterRevive) {
+      console.log('[PortalPet] 방치된 포털 홈 탭을 되살림 - 재사용');
+      return p;
+    }
   }
   return null;
 }
