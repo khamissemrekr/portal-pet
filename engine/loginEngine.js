@@ -282,6 +282,29 @@ async function getContext(browserProfile, subdomain, browserChannel = 'chrome') 
     sharedPage = null;
     mainServiceTabs.clear();
   });
+
+  // (버그 수정 - 사용자 재현: K-에듀파인 "공람대기"에서 항목 선택 후 "일괄처리"를 눌러도
+  // "선택하신 공람문서를 일괄처리하시겠습니까?" 같은 확인창이 뜨자마자 사라짐) Playwright가
+  // CDP로 이 브라우저를 붙잡고 있는 동안은, 어떤 페이지든 'dialog' 리스너가 하나도 없으면
+  // 그 페이지에서 뜨는 네이티브 confirm()/alert()/prompt() 창을 Playwright가 자동으로
+  // 취소(dismiss)해버린다 - 우리가 뭘 클릭해서가 아니라 리스너 부재 자체가 원인이다. 이건
+  // 사용자가 직접 마우스로 누른 화면에서도 똑같이 적용돼서, K-에듀파인 화면을 사용자가
+  // 스스로 조작할 때도 확인창이 즉시 사라져버렸다. 컨텍스트의 모든 탭(현재 탭 + 앞으로 새로
+  // 열리는 탭)에 아무 것도 안 하고 로그만 남기는 리스너를 붙여 이 자동 취소를 막는다 - 그러면
+  // 창이 화면에 그대로 남아 사용자가 직접 확인/취소를 누를 수 있다. (closeNeisRequestPopup처럼
+  // 우리가 의도적으로 자동 수락해야 하는 곳은 자체적으로 dialog.accept()를 부르는 리스너를
+  // 따로 붙이므로 이 패시브 리스너와 충돌하지 않는다.)
+  const attachDialogPassthrough = (p) => {
+    p.on('dialog', (dialog) => {
+      console.log(
+        '[PortalPet] native dialog appeared (자동으로 처리하지 않음 - 사용자가 직접 확인/취소해야 함):',
+        dialog.type(), dialog.message()
+      );
+    });
+  };
+  sharedContext.on('page', attachDialogPassthrough);
+  sharedContext.pages().forEach(attachDialogPassthrough);
+
   return { context: sharedContext, isNew: true };
 }
 
