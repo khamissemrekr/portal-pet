@@ -12,6 +12,7 @@ const { chromium } = require('playwright');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const os = require('node:os');
 const { app, shell } = require('electron');
 const { buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
 
@@ -1919,13 +1920,14 @@ async function isBrityMessengerLauncherPage(page) {
  */
 function minimizeNewlyOpenedNativeWindow({ timeoutMs = 15000 } = {}) {
   if (process.platform !== 'win32') return;
-  // (수정, 사용자 재현: "최소화되지 않는 것 같아") 처음엔 GetForegroundWindow(=키보드 포커스를
-  // 가진 창)만 감시했는데, Windows는 백그라운드 프로세스가 새로 띄운 창에 포커스를 뺏기지
-  // 못하게 막는 경우가 있다(포커스 스틸링 방지) - 이 경우 메신저 창이 화면에 "보이기는" 해도
-  // 절대 GetForegroundWindow로는 안 잡혀서 계속 못 찾았을 가능성이 있다. 그래서 방식을 바꿔서
-  // "포커스를 가졌는지"가 아니라 "새로 나타난, 제목이 있는 화면에 보이는 창인지"로 감시한다
-  // (EnumWindows로 실행 전/후 스냅샷을 비교) - 포커스 여부와 무관하게 더 안정적으로 잡힌다.
-  // 또한 stdio를 pipe로 바꿔 진단 로그를 남긴다(원인 파악용).
+  // (수정, 사용자 재현: "[minimize-watch] 로그가 아예 안 보임", 종료 이벤트는 code=0으로 즉시
+  // 찍힘) 스크립트가 아무 출력도 없이 code=0으로 곧바로 끝났다는 건 우리가 넘긴 -Command 문자열
+  // 자체가 제대로 실행되지 못했다는 뜻에 가깝다 - 이 스크립트는 여러 줄, 중첩된 따옴표, 여기
+  // 문자열(@"..."@)까지 섞인 꽤 복잡한 내용인데, Node의 spawn은 셸을 거치지 않고 Win32
+  // CreateProcess에 바로 넘길 명령줄 문자열을 조립하다 보니 이렇게 복잡한 내용을 인자 하나로
+  // 넘기면 인용부호 처리가 깨지기 쉽다. 그래서 -Command로 즉석 전달하는 대신, 스크립트를 임시
+  // .ps1 파일로 저장한 뒤 -File로 그 경로만 넘긴다 - 인자가 파일 경로 하나뿐이라 인용부호 문제가
+  // 생길 여지가 없다. 진단 메시지도 전부 ASCII로 바꿔서 파일 인코딩 문제 가능성도 없앴다.
   const excludeProcessNames = ['chrome', 'msedge', 'electron', 'portalpet', 'powershell', 'cmd'];
   const script = `
 Add-Type @"
@@ -1957,8 +1959,9 @@ function Get-VisibleTopWindows {
 }
 
 $exclude = @(${excludeProcessNames.map((n) => `'${n}'`).join(',')})
+Write-Output "[minimize-watch] started, excluding: $($exclude -join ',')"
 $before = Get-VisibleTopWindows
-Write-Output "[minimize-watch] 감시 시작, 기존 창 $($before.Count)개"
+Write-Output "[minimize-watch] baseline window count: $($before.Count)"
 $deadline = (Get-Date).AddMilliseconds(${timeoutMs})
 $done = $false
 while (-not $done -and (Get-Date) -lt $deadline) {
@@ -1973,24 +1976,32 @@ while (-not $done -and (Get-Date) -lt $deadline) {
         $name = $proc.ProcessName.ToLower()
         $sb = New-Object System.Text.StringBuilder 256
         [PortalPetWin32]::GetWindowText($hwnd, $sb, 256) | Out-Null
-        Write-Output "[minimize-watch] 새 창 발견: $name / $($sb.ToString())"
+        Write-Output "[minimize-watch] new window: $name / $($sb.ToString())"
         if ($exclude -notcontains $name) {
           [PortalPetWin32]::ShowWindow($hwnd, 6) | Out-Null
-          Write-Output "[minimize-watch] 최소화함: $name"
+          Write-Output "[minimize-watch] minimized: $name"
           $done = $true
           break
+        } else {
+          Write-Output "[minimize-watch] skipped (excluded): $name"
         }
-      } catch {}
+      } catch {
+        Write-Output "[minimize-watch] error reading process: $($_.Exception.Message)"
+      }
     }
   }
   $before = $now
 }
-if (-not $done) { Write-Output "[minimize-watch] 시간 내 새 창을 못 찾음(타임아웃)" }
+if (-not $done) { Write-Output "[minimize-watch] timeout, no target window found" }
 `;
+  let scriptPath = null;
   try {
+    scriptPath = path.join(os.tmpdir(), `portalpet-minimize-${Date.now()}.ps1`);
+    fs.writeFileSync(scriptPath, script, 'utf8');
+
     const child = spawn(
       'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath],
       { detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
     );
     const logLine = (buf) => {
@@ -1998,17 +2009,16 @@ if (-not $done) { Write-Output "[minimize-watch] 시간 내 새 창을 못 찾�
     };
     child.stdout.on('data', logLine);
     child.stderr.on('data', logLine);
-    // (신규, 사용자 재현: "[minimize-watch] 로그가 아예 안 보임") 지금까지는 spawn 자체가
-    // 성공했는지, 프로세스가 뭔가 출력하기도 전에 죽었는지 구분할 방법이 없었다. spawn()은
-    // 실행 파일을 못 찾는 등의 에러를 대부분 비동기 'error' 이벤트로 던지는데(동기 예외가
-    // 아님) 리스너가 없으면 그 에러가 그냥 조용히 사라질 수 있다 - 명시적으로 잡아서 로그로
-    // 남긴다. exit 이벤트도 남겨서 "출력 없이 그냥 끝났는지"도 구분할 수 있게 한다.
     child.on('error', (e) => console.log('[PortalPet] 메신저 최소화 스크립트 프로세스 시작 실패:', e.message));
-    child.on('exit', (code, signal) => console.log(`[PortalPet] 메신저 최소화 스크립트 종료: code=${code} signal=${signal}`));
+    child.on('exit', (code, signal) => {
+      console.log(`[PortalPet] 메신저 최소화 스크립트 종료: code=${code} signal=${signal}`);
+      fs.unlink(scriptPath, () => {}); // 임시 파일 정리 (실패해도 무시)
+    });
     child.unref();
-    console.log('[PortalPet] 메신저 실행 후 새로 뜨는 창 최소화 감시 시작');
+    console.log('[PortalPet] 메신저 실행 후 새로 뜨는 창 최소화 감시 시작:', scriptPath);
   } catch (e) {
     console.log('[PortalPet] 새 창 최소화 스크립트 실행 실패(non-fatal):', e.message);
+    if (scriptPath) fs.unlink(scriptPath, () => {});
   }
 }
 
