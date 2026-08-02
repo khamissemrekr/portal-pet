@@ -2076,6 +2076,21 @@ async function findExistingPortalHomePage(context, subdomain, excludePage = null
 }
 
 /**
+ * (신규, 사용자 요청) "프로그램 시작 시 자동 실행해둔 '일정' 탭이 있는데, 메뉴에서 '일정'을
+ * 다시 누르면 그 탭을 쓰지 않고 새 탭을 연다"는 피드백 - 컨텍스트 안의 모든 탭을 훑어 이미
+ * targetSystem(neis/edufine/gone/edmgr)에 가 있는 탭이 있으면 찾아 돌려준다. launchService가
+ * sharedPage(마지막으로 쓴 탭)만 보고 새 탭 여부를 정하던 것을, 열려 있는 모든 탭을 대상으로
+ * 확장한다.
+ */
+async function findExistingSystemTabPage(context, subdomain, targetSystem, excludePage = null) {
+  for (const p of context.pages()) {
+    if (p.isClosed() || p === excludePage) continue;
+    if (await isOnSystem(p, targetSystem, subdomain).catch(() => false)) return p;
+  }
+  return null;
+}
+
+/**
  * (신규, 사용자 요청) "공문 결재"를 누르면 새 탭이 업무포털 메인을 먼저 보여줬다가 K-에듀파인
  * 으로 넘어가는 게 불필요한 중간 화면으로 보인다는 피드백 - 처음 프로그램을 실행할 때부터
  * 이미 열려 있는 "업무포털 메인" 탭이 따로 있는데도, 새로 여는 탭이 그걸 무시하고 자기 안에서
@@ -2115,11 +2130,32 @@ async function tryEnterSystemFromExistingPortalHome(context, targetPage, subdoma
 async function launchService(serviceKey, subdomain, password, browserProfile = null, browserChannel = 'chrome') {
   console.log(`[PortalPet] launchService(${serviceKey}, ${subdomain}, ${browserChannel})`);
   const { context } = await getContext(browserProfile, subdomain, browserChannel); // 사용자 클릭 결과는 항상 bringToFront로 보여주므로 isNew 여부와 무관
-  // (수정) 이미 다른 화면이 떠서 사용 중이면(사용자가 방금 전 메뉴로 연 화면이 아직 열려 있으면)
-  // 그 화면을 그대로 두고 이번 클릭은 새 탭에서 실행한다 - 예전엔 항상 같은 탭을 재사용해서
-  // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
-  const openNewTab = await shouldOpenNewTabFor(serviceKey, subdomain);
-  const page = openNewTab ? await openFreshTab(context) : await getPage(context);
+
+  const targetSystem = SERVICE_SYSTEM[serviceKey] || null;
+
+  // (신규, 사용자 요청) 예를 들어 프로그램 시작 시 자동 실행해둔 "일정"(G-ONE) 탭이 다른 곳에
+  // 열려 있는데, 그 뒤 다른 메뉴를 눌렀다가(sharedPage가 그 시스템으로 바뀜) 다시 메뉴에서
+  // "일정"을 누르면 shouldOpenNewTabFor는 sharedPage만 보고 판단하기 때문에 이미 열려 있는
+  // "일정" 탭의 존재를 몰라 또 새 탭을 열었다. 새 탭/기존 탭 재사용 여부를 정하기 전에, 이
+  // 컨텍스트의 모든 탭을 훑어 목적 시스템에 이미 가 있는 탭이 있으면 새 탭을 열지 않고 그
+  // 탭을 그대로 재사용한다(같은 시스템 안에서 하위 메뉴만 바뀌는 건 기존 로직과 동일하게
+  // 그 탭 안에서 처리됨 - 나이스 복무/출장 신청과 같은 방식).
+  const existingSystemTab = targetSystem ? await findExistingSystemTabPage(context, subdomain, targetSystem) : null;
+
+  let page;
+  if (existingSystemTab) {
+    console.log(`[PortalPet] 이미 ${targetSystem} 탭이 열려 있음 - 새 탭을 열지 않고 그 탭을 재사용`);
+    page = existingSystemTab;
+    sharedPage = page;
+    mainServiceTabs.add(page);
+    await installPopupWatcher(page);
+  } else {
+    // (수정) 이미 다른 화면이 떠서 사용 중이면(사용자가 방금 전 메뉴로 연 화면이 아직 열려 있으면)
+    // 그 화면을 그대로 두고 이번 클릭은 새 탭에서 실행한다 - 예전엔 항상 같은 탭을 재사용해서
+    // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
+    const openNewTab = await shouldOpenNewTabFor(serviceKey, subdomain);
+    page = openNewTab ? await openFreshTab(context) : await getPage(context);
+  }
   await closeExtraPages(context, page); // 이전 클릭이 남겨둔 신청서 작성 창 등 정리 (다른 탭/창)
   // (수정) 근무상황신청/출장신청 창은 새 탭이 아니라 같은 페이지 안의 오버레이 다이얼로그로
   // 뜬다는 게 실측으로 확인됨 - closeExtraPages는 "다른" 페이지만 검사하므로 이 경우를
@@ -2133,7 +2169,6 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     await closeNeisRequestPopup(page);
   }
 
-  const targetSystem = SERVICE_SYSTEM[serviceKey] || null;
   let alreadyInTargetSystem = targetSystem ? await isOnSystem(page, targetSystem, subdomain) : false;
 
   let loggedIn = true;
