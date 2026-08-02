@@ -1925,15 +1925,48 @@ async function tryLaunchBrityMessengerDirectly(popup) {
   }
 }
 
-async function clickFirstMatchFollowingPopup(context, page, candidates, { timeout = 6000, exact = false } = {}) {
+// G-ONE 좌측 GNB(협업포탈 아이콘 바) - 사용자가 실측 HTML로 제공: 화면이 일정/메일 등으로
+// 바뀌어도 항상 떠 있는 <div class="nav"><ul><li><button aria-label="...">...</button> 목록.
+// 상단 공용 네비게이션 바(.cl-navigationbar-text)는 화면에 따라 없을 수 있지만(실측 확인:
+// "일정" 화면) 이 좌측 GNB는 항상 있어서 더 안정적이다. "AI 대화·초안"은 G-ONE 기본 진입
+// 화면이라 이 GNB에서는 별도 라벨 없이 "Home" 버튼에 해당한다.
+const GONE_GNB_ARIA_LABEL_BY_TEXT = {
+  메신저: '메신저',
+  'AI 대화·초안': 'Home',
+  일정: '일정',
+  메일: '메일',
+  '할 일': '할 일',
+  Meeting: '미팅',
+  Drive: '드라이브',
+};
+
+function locateGoneGnbButton(page, text) {
+  const ariaLabel = GONE_GNB_ARIA_LABEL_BY_TEXT[text];
+  if (!ariaLabel) return null;
+  return page.locator(`.nav button[aria-label="${ariaLabel}"]`).first();
+}
+
+async function clickFirstMatchFollowingPopup(context, page, candidates, { timeout = 6000, exact = false, preferGnb = false } = {}) {
   for (const text of candidates) {
     let el;
-    try {
-      el = page.getByText(text, { exact }).first();
-      await el.waitFor({ state: 'visible', timeout });
-    } catch (e) {
-      console.log(`[PortalPet] could not find "${text}" (exact:${exact}):`, e.message);
-      continue;
+    // (수정, 사용자 요청) 이미 G-ONE 안에 있을 때는(preferGnb) 포털 홈을 거치지 않고 항상
+    // 떠 있는 좌측 GNB부터 시도한다 - 화면에 따라 없을 수 있는 상단 텍스트 라벨보다 안정적.
+    if (preferGnb) {
+      const gnbBtn = locateGoneGnbButton(page, text);
+      const gnbVisible = gnbBtn ? await gnbBtn.isVisible().catch(() => false) : false;
+      if (gnbVisible) {
+        console.log(`[PortalPet] "${text}" -> 좌측 GNB 버튼으로 클릭 시도`);
+        el = gnbBtn;
+      }
+    }
+    if (!el) {
+      try {
+        el = page.getByText(text, { exact }).first();
+        await el.waitFor({ state: 'visible', timeout });
+      } catch (e) {
+        console.log(`[PortalPet] could not find "${text}" (exact:${exact}):`, e.message);
+        continue;
+      }
     }
 
     const popupPromise = context.waitForEvent('page', { timeout: 2000 }).catch(() => null);
@@ -1995,25 +2028,13 @@ async function refocusIgnoringLatecomers(context, target, { wait = 900 } = {}) {
  */
 async function openGoneSubMenu(context, page, subdomain, candidates, password, alreadyOnGone = false) {
   let target = page;
-  // (버그 수정, 사용자 재현: "일정" 탭에서 "AI 대화·초안" 클릭 시 이동 안 됨) G-ONE 하위 화면 중
-  // "일정"(gdp-copilot.goe.go.kr)처럼 완전히 다른 호스트로 옮겨가는 화면에는 다른 하위 메뉴로
-  // 갈아탈 때 클릭하는 상단 공용 네비게이션 바(AI 대화·초안/메일/일정 등 라벨)가 아예 없다.
-  // isOnSystem은 이런 화면도 "이미 G-ONE 안"으로 간주해 alreadyOnGone=true를 넘기지만, 그
-  // 상태로 바로 다른 후보 텍스트를 찾으려 하면 네비게이션 바 자체가 없어서 못 찾고 "이동 못 함"
-  // 으로 끝난다 - alreadyOnGone이어도 실제로 네비게이션 바가 있는 화면인지 한 번 더 확인해서,
-  // 없으면 포털 홈을 거쳐 네비게이션 바가 있는 G-ONE 공용 화면으로 다시 들어간다.
-  const hasNavBar = alreadyOnGone
-    ? await page
-        .evaluate(() => document.querySelectorAll('.cl-navigationbar-text').length > 0)
-        .catch(() => false)
-    : false;
-
-  if (alreadyOnGone && hasNavBar) {
-    console.log('[PortalPet] 이미 G-ONE에 있음 - 포털 홈 재방문 생략');
+  // (수정, 사용자 요청: "포털 홈으로 가지 말고... 협업포탈로 이동해서 가는 것이 좋을 것 같아")
+  // 이미 G-ONE 안이면(예: "일정" 탭에서 "AI 대화·초안"으로 갈아타는 경우) 포털 홈을 다시
+  // 거치지 않고, 화면이 바뀌어도 항상 떠 있는 좌측 GNB(협업포탈 아이콘 바)로 바로 전환한다
+  // - clickFirstMatchFollowingPopup에 preferGnb:true로 넘겨 처리(아래).
+  if (alreadyOnGone) {
+    console.log('[PortalPet] 이미 G-ONE에 있음 - 포털 홈 재방문 없이 좌측 GNB로 바로 전환');
   } else {
-    if (alreadyOnGone) {
-      console.log('[PortalPet] G-ONE 계열이지만 상단 네비게이션 바가 없는 화면(예: 일정) - 네비게이션 바가 있는 G-ONE 공용 화면으로 다시 진입');
-    }
     await ensureOnPortalHome(page, subdomain);
     target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
     await target.waitForTimeout(900);
@@ -2021,7 +2042,7 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
   // G-ONE 기본 진입 화면(AI 대화·초안 탭)에 공지 팝업이 뜨는 경우가 있다(실측 확인:
   // "오늘 하루 보지 않기" + "확인"). 하위 메뉴를 클릭하기 전에 먼저 치워야 클릭이 안 막힌다.
   await closeAnyPopups(target);
-  const result = await clickFirstMatchFollowingPopup(context, target, candidates);
+  const result = await clickFirstMatchFollowingPopup(context, target, candidates, { preferGnb: alreadyOnGone });
   target = result.page;
   if (!result.found) {
     console.log(`[PortalPet] G-ONE sub-menu not found among candidates [${candidates.join(', ')}] - staying on G-ONE home`);
