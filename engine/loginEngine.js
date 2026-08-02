@@ -2093,9 +2093,14 @@ async function clickAndFollowPopup(context, page, el, label) {
       // 3초 기다린 뒤 닫는다 - 크롬 -> OS -> Brity 메신저 앱으로 넘어갈 시간이 부족하면
       // (실측 확인: 로그상 정상 동작했는데도 메신저가 안 뜬 적 있음) 메신저가 안 뜰 수 있다.
       const launchedDirectly = await tryLaunchBrityMessengerDirectly(popup);
-      if (!launchedDirectly) {
-        await popup.waitForTimeout(3000).catch(() => {});
-      }
+      // (버그 수정, 사용자 재현: 메신저 창에 "네트워크 연결이 불안정하여 로그아웃 되었습니다"
+      // 뜨며 로그인 실패) 다이렉트 실행(브리지 탭에서 brityaltsso:// 링크를 직접 추출해
+      // shell.openExternal로 여는 방식)이 성공하면 대기 없이 곧바로 브리지 탭을 닫았는데,
+      // 브리티 메신저의 로그인 핸드오프가 이 브리지 탭이 들고 있던 세션/쿠키가 살아있는 상태를
+      // 필요로 하는 것으로 보인다 - 탭을 너무 빨리 닫으면 핸드오프가 끝나기 전에 세션이 끊겨
+      // 메신저가 로그아웃 상태로 뜬다. 다이렉트로 열었을 때도 폴백 경로와 동일하게 잠시
+      // 기다렸다가 닫는다(속도보다 로그인 성공이 우선).
+      await popup.waitForTimeout(3000).catch(() => {});
       await popup.close().catch((e) => console.log('[PortalPet] closing messenger bridge tab failed (non-fatal):', e.message));
       return page;
     }
