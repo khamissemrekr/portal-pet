@@ -1998,35 +1998,20 @@ if (-not $done) { Write-Output "[minimize-watch] timeout, no target window found
   try {
     scriptPath = path.join(os.tmpdir(), `portalpet-minimize-${Date.now()}.ps1`);
     fs.writeFileSync(scriptPath, script, 'utf8');
-    console.log(`[PortalPet] 최소화 스크립트 파일 작성 완료: ${scriptPath} (${Buffer.byteLength(script, 'utf8')} bytes)`);
 
-    // (신규, 진단용) 지금까지 code=0/출력 없음으로 즉시 끝난 게 우리 스크립트 자체의 문제인지,
-    // 아니면 이 PC에서 powershell.exe 실행 자체가(실행 정책/보안 정책으로) 막혀 있는지 구분이
-    // 안 됐다. 아주 단순한 "PORTALPET_PS_OK"만 출력하는 카나리아 명령을 동시에 하나 더 실행해서,
-    // 그 결과로 powershell.exe 자체가 정상 동작하는 환경인지부터 확인한다.
-    const canary = spawn('powershell.exe', ['-NoProfile', '-Command', 'Write-Output PORTALPET_PS_OK'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    let canaryOut = '';
-    canary.stdout.on('data', (b) => { canaryOut += String(b); });
-    canary.stderr.on('data', (b) => console.log('[PortalPet] [canary][stderr]', String(b).trim()));
-    canary.on('error', (e) => console.log('[PortalPet] [canary] 프로세스 시작 실패:', e.message));
-    canary.on('exit', (code, signal) => console.log(`[PortalPet] [canary] 종료: code=${code} signal=${signal} 출력="${canaryOut.trim()}"`));
-
-    // (수정, 진단) detached + -WindowStyle Hidden 조합이 원인일 가능성을 배제하기 위해 이번엔
-    // 둘 다 빼고 가장 단순한 형태로 실행한다(windowsHide:true만으로도 창은 안 뜬다). 우리
-    // Electron 메인 프로세스는 이 몇 초 동안 계속 살아있으므로 detached가 굳이 필요하지 않다.
+    // (실측 확인) detached:true + -WindowStyle Hidden 조합이 powershell.exe 실행 자체를 조용히
+    // 막았다(code=0, 출력 없이 즉시 종료) - 그래서 둘 다 뺐다. windowsHide:true만으로도 창은
+    // 안 뜨고, 우리 Electron 메인 프로세스는 이 몇 초 동안 계속 살아있으므로 detached가 굳이
+    // 필요하지 않다.
     const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
-    console.log('[PortalPet] 최소화 스크립트 프로세스 pid:', child.pid);
-    const logLine = (tag) => (buf) => {
-      String(buf).split(/\r?\n/).filter(Boolean).forEach((line) => console.log(`[PortalPet] [${tag}]`, line));
+    const logLine = (buf) => {
+      String(buf).split(/\r?\n/).filter(Boolean).forEach((line) => console.log('[PortalPet]', line));
     };
-    child.stdout.on('data', logLine('stdout'));
-    child.stderr.on('data', logLine('stderr'));
+    child.stdout.on('data', logLine);
+    child.stderr.on('data', logLine);
     child.on('error', (e) => console.log('[PortalPet] 메신저 최소화 스크립트 프로세스 시작 실패:', e.message));
     child.on('exit', (code, signal) => {
       console.log(`[PortalPet] 메신저 최소화 스크립트 종료: code=${code} signal=${signal}`);
