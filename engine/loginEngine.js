@@ -1998,6 +1998,13 @@ if (-not $done) { Write-Output "[minimize-watch] 시간 내 새 창을 못 찾�
     };
     child.stdout.on('data', logLine);
     child.stderr.on('data', logLine);
+    // (신규, 사용자 재현: "[minimize-watch] 로그가 아예 안 보임") 지금까지는 spawn 자체가
+    // 성공했는지, 프로세스가 뭔가 출력하기도 전에 죽었는지 구분할 방법이 없었다. spawn()은
+    // 실행 파일을 못 찾는 등의 에러를 대부분 비동기 'error' 이벤트로 던지는데(동기 예외가
+    // 아님) 리스너가 없으면 그 에러가 그냥 조용히 사라질 수 있다 - 명시적으로 잡아서 로그로
+    // 남긴다. exit 이벤트도 남겨서 "출력 없이 그냥 끝났는지"도 구분할 수 있게 한다.
+    child.on('error', (e) => console.log('[PortalPet] 메신저 최소화 스크립트 프로세스 시작 실패:', e.message));
+    child.on('exit', (code, signal) => console.log(`[PortalPet] 메신저 최소화 스크립트 종료: code=${code} signal=${signal}`));
     child.unref();
     console.log('[PortalPet] 메신저 실행 후 새로 뜨는 창 최소화 감시 시작');
   } catch (e) {
