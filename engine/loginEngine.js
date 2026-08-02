@@ -689,10 +689,12 @@ async function clickFirstMatch(page, candidates, opts) {
 
 // 팝업마다 "다시 보지 않기" 체크박스 문구와 닫기 버튼 문구가 다르다(실측 확인: 포털 홈은
 // "1주일동안 열지 않기" + "닫기", G-ONE은 "오늘 하루 보지 않기" + "확인", 나이스 공지사항은
-// "오늘 하루 창 열지 않음" / "일주일 창 열지 않음" + "닫기"). 후보를 순서대로 시도한다.
+// "오늘 하루 창 열지 않음" / "일주일 창 열지 않음" + "닫기", K-에듀파인(Nexacro)은 "오늘 하루
+// 이창을 열지 않음" / "일주일동안 열지 않음" + "확인"/"닫기"). 후보를 순서대로 시도한다.
 const POPUP_SKIP_CHECKBOX_CANDIDATES = [
   '1주일동안 열지 않기', '오늘 하루 보지 않기', '오늘 하루 이상 열지 않기', '오늘 하루 열지 않기',
   '오늘 하루 창 열지 않음', '일주일 창 열지 않음',
+  '오늘 하루 이창을 열지 않음', '일주일동안 열지 않음',
 ];
 // (수정) POPUP_CLOSE_BUTTON_CANDIDATES(페이지 전체에서 "닫기"/"확인" 텍스트를 찾아 닫던 목록
 // 화면용 안전망)는 closeAnyPopupsCore에서 실제 결재 목록의 정상 버튼을 잘못 클릭하는 사고가
@@ -859,6 +861,40 @@ function findTopmostDialogCloseButtonInPage() {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
+/**
+ * K-에듀파인은 나이스/G-ONE의 "cl-" 프레임워크가 아니라 Nexacro라는 완전히 다른 UI 프레임워크를
+ * 쓴다(사용자가 실제 DOM을 직접 확인해줌 - 실측 확인). 공지사항 팝업은
+ * id="...noticePopup0..."인 창(class="ChildFrame") 안에 닫기 버튼(role="button",
+ * class="Button btn_POP_Close")과 확인 버튼(role="button", class="Button btn_POP_Confirm")이
+ * 있다. "btn_POP_" 접두사는 Nexacro가 팝업 전용 버튼에 붙이는 명명 규칙으로 보인다.
+ * (안전장치) 나이스 결재 화면에서 페이지 전체의 막연한 "확인"/"닫기" 텍스트로 진짜 업무 버튼을
+ * 잘못 눌렀던 사고가 있었다(POPUP_CLOSE_BUTTON_CANDIDATES 제거 사유) - 그 재발을 막기 위해
+ * "id에 noticePopup이 포함된 컨테이너 안"으로만 검색 범위를 엄격히 좁힌다. "결재 승인하시겠습니까"
+ * 같은 실제 업무 확인창도 같은 ChildFrame/btn_POP_* 구조를 재사용할 가능성이 있는데, 그런
+ * 확인창은 id가 noticePopup 패턴을 안 쓸 것이므로(추정) 이 좁은 범위에 걸리지 않는다.
+ */
+function findNexacroNoticePopupCloseButtonInPage() {
+  const isVisible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const TRIED_ATTR = 'data-pp-tried';
+  const noticeContainers = [...document.querySelectorAll('[id*="noticePopup"]')].filter(isVisible);
+  for (const container of noticeContainers) {
+    const btn = [...container.querySelectorAll(
+      '[role="button"][class*="btn_POP_Close"], [role="button"][class*="btn_POP_Confirm"]'
+    )].find((e) => isVisible(e) && !e.hasAttribute(TRIED_ATTR));
+    if (btn) {
+      btn.setAttribute(TRIED_ATTR, '1');
+      const r = btn.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+  }
+  return null;
+}
+
 async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
   for (let i = 0; i < maxAttempts; i++) {
     // "다시 보지 않기"류 체크박스가 있으면 먼저 체크 - 실패해도(없어도) 무시하고 계속 진행.
@@ -867,7 +903,7 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
       closestSelector: 'label,button,a,[role="checkbox"]',
     });
 
-    // ".cl-dialog" 형태의 팝업(나이스 공지사항 등)은 여러 개 겹쳐 뜰 수 있어, 겹침 문제를
+    // ".cl-dialog" 형태의 팝업(나이스/G-ONE 공지사항 등)은 여러 개 겹쳐 뜰 수 있어, 겹침 문제를
     // 피하기 위해 맨 위 다이얼로그 하나만 그 안에서 찾아 닫는다. 여러 개면 이 루프가 돌면서
     // 한 번에 하나씩 닫힌다.
     const closedDialog = await findAndMouseClick(page, findTopmostDialogCloseButtonInPage);
@@ -877,15 +913,26 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
       continue;
     }
 
+    // K-에듀파인(Nexacro 프레임워크)의 공지사항 팝업은 ".cl-dialog"를 안 써서 위 경로로는 못
+    // 잡는다(사용자가 실제 DOM을 확인해준 결과 확인 - id에 "noticePopup"이 포함된 별개의 창
+    // 구조). id=noticePopup* 범위로 엄격히 좁혀서 찾는다(아래 함수 설명 참고).
+    const closedNexacroNotice = await findAndMouseClick(page, findNexacroNoticePopupCloseButtonInPage);
+    if (closedNexacroNotice) {
+      console.log('[PortalPet] closed a Nexacro notice popup (K-에듀파인 등)');
+      await page.waitForTimeout(200);
+      continue;
+    }
+
     // (버그 수정 5 - 실측 확인) ".cl-dialog"가 아닌 일반 팝업 대응으로 페이지 전체에서 "확인"/
-    // "닫기" 텍스트를 무조건 찾아 클릭하던 이 경로를 완전히 껐다. 나이스 결재(미결/협조함)
-    // 같은 목록 화면에는 행마다 "확인"/"닫기" 라벨의 정상 동작 버튼이 여러 개 있을 수 있는데,
+    // "닫기" 텍스트를 무조건 찾아 클릭하던 경로는 완전히 껐다. 나이스 결재(미결/협조함) 같은
+    // 목록 화면에는 행마다 "확인"/"닫기" 라벨의 정상 동작 버튼이 여러 개 있을 수 있는데,
     // data-pp-tried 표식으로 무한 재클릭은 막았어도 이 경로가 그 버튼들을 하나씩 순서대로
     // 전부(사용자 재현: 로그에 "closed a popup"이 19번 연속, 서로 다른 버튼을 하나씩 클릭한
     // 것으로 추정) 실제로 클릭해버렸다 - 실제 결재/승인 목록의 버튼을 잘못 눌러버릴 수 있는
-    // 위험한 동작이라 더는 감수할 수 없다고 판단. 알려진 실제 공지 팝업은 전부 .cl-dialog나
-    // role="dialog" 래퍼를 쓰는 것으로 확인됐으므로(위 findTopmostDialogCloseButtonInPage가
-    // 처리), 그 래퍼가 없는 팝업까지 잡으려던 이 마지막 안전망은 득보다 실이 커서 제거한다.
+    // 위험한 동작이라 더는 감수할 수 없다고 판단. 지금까지 확인된 실제 공지 팝업은 전부
+    // .cl-dialog/role="dialog"(나이스/G-ONE) 또는 id=noticePopup*(K-에듀파인/Nexacro) 중
+    // 하나로 특정 가능했으므로, 그 특정 없이 페이지 전체를 훑던 이 마지막 안전망은 득보다
+    // 실이 커서 제거했다.
     break;
   }
 }
@@ -953,6 +1000,14 @@ function popupWatcherInitScript() {
     if (isLoginOverlayVisible()) return false;
     const dialogs = [...document.querySelectorAll('.cl-dialog, [role="dialog"]')].filter(isVisible);
     if (dialogs.some((d) => !hasFormInputs(d))) return true;
+    // (버그 수정 4 - 실측 확인) K-에듀파인은 나이스/G-ONE의 cl-dialog 프레임워크가 아니라
+    // Nexacro 프레임워크를 쓴다. 공지사항 팝업은 id에 "noticePopup"이 포함된 ChildFrame으로
+    // 렌더링되며(예: mainframe.MainVFrameSet.SubHFrameSet.MainFrame.noticePopup0), 사용자가
+    // 실제 outerHTML을 확인해줘서 알아냈다. 실제 업무 확인창과 구조가 겹칠 위험을 줄이기 위해
+    // "noticePopup" id 패턴을 가진 컨테이너만 팝업으로 인식한다(findNexacroNoticePopupCloseButtonInPage와
+    // 동일한 스코프 제한).
+    const nexacroNotices = [...document.querySelectorAll('[id*="noticePopup"]')].filter(isVisible);
+    if (nexacroNotices.length > 0) return true;
     const texts = ['닫기', '확인', '1주일동안 열지 않기', '오늘 하루 보지 않기', '오늘 하루 이상 열지 않기'];
     return [...document.querySelectorAll('*')].some((e) => {
       if (e.children.length > 2) return false; // 버튼/라벨처럼 짧고 구체적인 요소만
