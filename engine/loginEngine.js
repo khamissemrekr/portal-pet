@@ -1917,46 +1917,89 @@ async function isBrityMessengerLauncherPage(page) {
  * 정확한 프로세스명을 몰라도 되고, 못 찾아도(예: 이미 실행 중이라 전면 전환이 안 일어나는 경우)
  * 조용히 타임아웃으로 끝나 메신저 실행 자체에는 영향이 없다.
  */
-function minimizeNewlyOpenedNativeWindow({ timeoutMs = 6000 } = {}) {
+function minimizeNewlyOpenedNativeWindow({ timeoutMs = 15000 } = {}) {
   if (process.platform !== 'win32') return;
+  // (수정, 사용자 재현: "최소화되지 않는 것 같아") 처음엔 GetForegroundWindow(=키보드 포커스를
+  // 가진 창)만 감시했는데, Windows는 백그라운드 프로세스가 새로 띄운 창에 포커스를 뺏기지
+  // 못하게 막는 경우가 있다(포커스 스틸링 방지) - 이 경우 메신저 창이 화면에 "보이기는" 해도
+  // 절대 GetForegroundWindow로는 안 잡혀서 계속 못 찾았을 가능성이 있다. 그래서 방식을 바꿔서
+  // "포커스를 가졌는지"가 아니라 "새로 나타난, 제목이 있는 화면에 보이는 창인지"로 감시한다
+  // (EnumWindows로 실행 전/후 스냅샷을 비교) - 포커스 여부와 무관하게 더 안정적으로 잡힌다.
+  // 또한 stdio를 pipe로 바꿔 진단 로그를 남긴다(원인 파악용).
   const excludeProcessNames = ['chrome', 'msedge', 'electron', 'portalpet', 'powershell', 'cmd'];
   const script = `
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public class PortalPetWin32 {
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet = CharSet.Auto)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }
 "@
-$exclude = @(${excludeProcessNames.map((n) => `'${n}'`).join(',')})
-$deadline = (Get-Date).AddMilliseconds(${timeoutMs})
-while ((Get-Date) -lt $deadline) {
-  Start-Sleep -Milliseconds 300
-  $hwnd = [PortalPetWin32]::GetForegroundWindow()
-  if ($hwnd -ne [IntPtr]::Zero) {
-    $procId = 0
-    [PortalPetWin32]::GetWindowThreadProcessId($hwnd, [ref]$procId) | Out-Null
-    try {
-      $proc = Get-Process -Id $procId -ErrorAction Stop
-      $name = $proc.ProcessName.ToLower()
-      if ($exclude -notcontains $name) {
-        [PortalPetWin32]::ShowWindow($hwnd, 6) | Out-Null
-        exit 0
-      }
-    } catch {}
+
+function Get-VisibleTopWindows {
+  $list = New-Object System.Collections.Generic.List[IntPtr]
+  $cb = {
+    param($hWnd, $lParam)
+    if ([PortalPetWin32]::IsWindowVisible($hWnd) -and [PortalPetWin32]::GetWindowTextLength($hWnd) -gt 0) {
+      $list.Add($hWnd) | Out-Null
+    }
+    return $true
   }
+  [PortalPetWin32]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
+  return $list
 }
+
+$exclude = @(${excludeProcessNames.map((n) => `'${n}'`).join(',')})
+$before = Get-VisibleTopWindows
+Write-Output "[minimize-watch] 감시 시작, 기존 창 $($before.Count)개"
+$deadline = (Get-Date).AddMilliseconds(${timeoutMs})
+$done = $false
+while (-not $done -and (Get-Date) -lt $deadline) {
+  Start-Sleep -Milliseconds 300
+  $now = Get-VisibleTopWindows
+  foreach ($hwnd in $now) {
+    if ($before -notcontains $hwnd) {
+      $procId = 0
+      [PortalPetWin32]::GetWindowThreadProcessId($hwnd, [ref]$procId) | Out-Null
+      try {
+        $proc = Get-Process -Id $procId -ErrorAction Stop
+        $name = $proc.ProcessName.ToLower()
+        $sb = New-Object System.Text.StringBuilder 256
+        [PortalPetWin32]::GetWindowText($hwnd, $sb, 256) | Out-Null
+        Write-Output "[minimize-watch] 새 창 발견: $name / $($sb.ToString())"
+        if ($exclude -notcontains $name) {
+          [PortalPetWin32]::ShowWindow($hwnd, 6) | Out-Null
+          Write-Output "[minimize-watch] 최소화함: $name"
+          $done = $true
+          break
+        }
+      } catch {}
+    }
+  }
+  $before = $now
+}
+if (-not $done) { Write-Output "[minimize-watch] 시간 내 새 창을 못 찾음(타임아웃)" }
 `;
   try {
-    const child = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', script], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+      { detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
+    );
+    const logLine = (buf) => {
+      String(buf).split(/\r?\n/).filter(Boolean).forEach((line) => console.log('[PortalPet]', line));
+    };
+    child.stdout.on('data', logLine);
+    child.stderr.on('data', logLine);
     child.unref();
-    console.log('[PortalPet] 메신저 실행 후 새로 전면에 뜨는 창 최소화 감시 시작');
+    console.log('[PortalPet] 메신저 실행 후 새로 뜨는 창 최소화 감시 시작');
   } catch (e) {
     console.log('[PortalPet] 새 창 최소화 스크립트 실행 실패(non-fatal):', e.message);
   }
