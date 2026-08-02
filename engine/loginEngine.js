@@ -815,6 +815,43 @@ function findVisibleLeafCenterInPage({ candidates, closestSelector }) {
 // 동일 텍스트 버튼을 잘못 집지 않도록 querySelector의 검색 범위 자체를 좁힌다). 우선순위는
 // 헤더의 X 아이콘(.cl-dialog-close, 텍스트 없이 항상 존재)을 먼저 쓰고, 없으면 하단의
 // "닫기"/"확인" 텍스트 버튼을 쓴다.
+/**
+ * (신규, 사용자 제공 나이스 "웹접근성 사용법 및 단축키" 안내) findTopmostDialogCloseButtonInPage
+ * 와 완전히 동일한 안전 조건(인증서 로그인 화면이 아님, 맨 위 다이얼로그가 실제 입력 요소를
+ * 가진 업무 화면이 아님)만 재확인하고, 실제로 닫을 버튼은 찾지 않는다 - closeAnyPopupsCore가
+ * Esc 키를 눌러도 되는 상황인지, 그리고 Esc를 누른 뒤 다이얼로그가 실제로 사라졌는지를
+ * 판단하는 용도로 쓴다.
+ */
+function isTopmostClosableDialogPresentInPage() {
+  const isVisible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  if (isVisible(document.querySelector('#btnLgn')) || isVisible(document.querySelector('input[name="certPassword"]'))) {
+    return false;
+  }
+  const dialogs = [...document.querySelectorAll('.cl-dialog, [role="dialog"]')].filter(isVisible);
+  if (!dialogs.length) return false;
+
+  const zIndexOf = (e) => {
+    const z = parseInt(getComputedStyle(e).zIndex, 10);
+    return Number.isFinite(z) ? z : 0;
+  };
+  let topDialog = dialogs[0];
+  let topZ = zIndexOf(topDialog);
+  for (let i = 1; i < dialogs.length; i++) {
+    const z = zIndexOf(dialogs[i]);
+    if (z >= topZ) { topDialog = dialogs[i]; topZ = z; }
+  }
+
+  const hasFormInputs = (el) => [...el.querySelectorAll(
+    'input:not([type="checkbox"]):not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])'
+  )].some(isVisible);
+  return !hasFormInputs(topDialog);
+}
+
 function findTopmostDialogCloseButtonInPage() {
   const isVisible = (e) => {
     if (!e) return false;
@@ -925,6 +962,27 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
       candidates: POPUP_SKIP_CHECKBOX_CANDIDATES,
       closestSelector: 'label,button,a,[role="checkbox"]',
     });
+
+    // (신규, 사용자 제공 나이스 "웹접근성 사용법 및 단축키" 안내) 나이스 계열 다이얼로그
+    // (.cl-dialog/role="dialog")는 공식적으로 Esc(알림 팝업 닫기, 확인 팝업은 취소)로도
+    // 닫힌다고 안내돼 있다. DOM에서 닫기/확인 버튼을 찾아 좌표를 계산해 마우스로 클릭하는
+    // 아래 기존 방식보다 훨씬 단순하고, 엉뚱한 요소를 잘못 클릭할 위험이 없다 - 안전 조건
+    // (인증서 로그인 화면이 아님, 맨 위 다이얼로그가 입력 요소를 가진 업무 화면이 아님)은
+    // findTopmostDialogCloseButtonInPage와 완전히 동일하게 재사용한다. Esc를 눌러도 그
+    // 다이얼로그가 그대로 남아 있으면(예: 이 특정 팝업이 Esc를 안 듣는 경우) 곧바로 아래
+    // 기존 클릭 경로로 폴백한다. K-에듀파인(Nexacro) 쪽은 이 안내 대상이 아니라서 손대지
+    // 않는다.
+    const canTryEscape = await page.evaluate(isTopmostClosableDialogPresentInPage).catch(() => false);
+    if (canTryEscape) {
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(150);
+      const stillThere = await page.evaluate(isTopmostClosableDialogPresentInPage).catch(() => false);
+      if (!stillThere) {
+        console.log('[PortalPet] closed a dialog popup via Escape key (나이스 웹접근성 단축키)');
+        await page.waitForTimeout(150);
+        continue;
+      }
+    }
 
     // ".cl-dialog" 형태의 팝업(나이스/G-ONE 공지사항 등)은 여러 개 겹쳐 뜰 수 있어, 겹침 문제를
     // 피하기 위해 맨 위 다이얼로그 하나만 그 안에서 찾아 닫는다. 여러 개면 이 루프가 돌면서
