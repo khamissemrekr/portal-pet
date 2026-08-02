@@ -14,7 +14,7 @@ function loadConfig() {
   if (!fs.existsSync(CONFIG_PATH)) {
     return {
       region: '', subdomain: '', encryptedPasswordBase64: '', runAtStartup: false,
-      autoLaunchMessenger: false, autoLaunchSchedule: false,
+      autoLaunchMessenger: false, autoLaunchSchedule: false, minimizeMessengerOnLaunch: true,
       customLinks: [],
       autoLogin: true, // 기본값: 비밀번호 저장해서 자동 로그인
       browserChannel: 'chrome', // 기본값: 크롬 사용 ('chrome' | 'msedge')
@@ -27,7 +27,7 @@ function loadConfig() {
   }
   // 기존에 저장된 config.json에는 이 필드들이 없을 수 있어(과거 버전 사용자) 기본값으로 채워준다.
   return {
-    autoLaunchMessenger: false, autoLaunchSchedule: false, customLinks: [], autoLogin: true,
+    autoLaunchMessenger: false, autoLaunchSchedule: false, minimizeMessengerOnLaunch: true, customLinks: [], autoLogin: true,
     browserChannel: 'chrome', panelOpacity: 0.92, dashboardAutoRefresh: true, dashboardRefreshMinutes: 5,
     panelAutoCloseEnabled: false, panelAutoCloseSeconds: 10,
     ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')),

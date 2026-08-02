@@ -145,6 +145,11 @@
     메신저만 체크하면 메신저만, 일정만 체크하면 일정만 실행됩니다. 둘 다 체크하면 메신저 로그인
     후 이어서 일정 페이지를 띄워 둡니다.
   </div>
+  <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+    <input id="minimizeMessengerOnLaunch" type="checkbox" checked style="width:auto; margin-top:0;" />
+    <span>메신저 실행 시 최소화하기</span>
+  </label>
+  <div class="note">메신저 창이 화면 앞으로 튀어나오지 않도록, 실행되면 바로 최소화합니다.</div>
 
   <button id="saveBtn">저장</button>
 
@@ -282,6 +287,7 @@
       document.getElementById('autoStartOnLogin').checked = !!config?.autoStartOnLogin;
       document.getElementById('autoLaunchMessenger').checked = !!config?.autoLaunchMessenger;
       document.getElementById('autoLaunchSchedule').checked = !!config?.autoLaunchSchedule;
+      document.getElementById('minimizeMessengerOnLaunch').checked = config?.minimizeMessengerOnLaunch !== false;
       dashboardAutoRefreshInput.checked = config?.dashboardAutoRefresh !== false;
       dashboardMinutesInput.value = String(config?.dashboardRefreshMinutes ?? 5);
       syncDashboardMinutesEnabled();
@@ -318,6 +324,7 @@
       const autoStartOnLogin = document.getElementById('autoStartOnLogin').checked;
       const autoLaunchMessenger = document.getElementById('autoLaunchMessenger').checked;
       const autoLaunchSchedule = document.getElementById('autoLaunchSchedule').checked;
+      const minimizeMessengerOnLaunch = document.getElementById('minimizeMessengerOnLaunch').checked;
       const panelOpacity = Number(opacityInput.value) / 100;
       const dashboardAutoRefresh = dashboardAutoRefreshInput.checked;
       const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
@@ -325,7 +332,7 @@
       const panelAutoCloseSeconds = Number(panelAutoCloseSecondsInput.value) || 10;
       await window.portalPet.saveSetup({
         region, subdomain, password, browserProfile, browserChannel, autoStartOnLogin,
-        autoLaunchMessenger, autoLaunchSchedule,
+        autoLaunchMessenger, autoLaunchSchedule, minimizeMessengerOnLaunch,
         customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
         panelAutoCloseEnabled, panelAutoCloseSeconds,
       });

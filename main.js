@@ -241,7 +241,9 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
     : null;
 
   try {
-    const result = await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+    const result = await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
+      minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
+    });
     return result;
   } catch (err) {
     console.error('[PortalPet] launch-service failed:', err);
@@ -423,7 +425,7 @@ function sanitizeCustomLinks(customLinks) {
 ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
-  panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin,
+  panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
@@ -460,6 +462,7 @@ ipcMain.handle('save-setup', (_evt, {
     browserChannel: browserChannel === 'msedge' ? 'msedge' : 'chrome', // 어떤 설치된 브라우저(크롬/엣지)를 쓸지
     autoLaunchMessenger: !!autoLaunchMessenger,
     autoLaunchSchedule: !!autoLaunchSchedule,
+    minimizeMessengerOnLaunch: minimizeMessengerOnLaunch !== false, // 기본값 true - 메신저 실행 시 자동으로 최소화할지
     customLinks: sanitizeCustomLinks(customLinks),
     autoLogin: autoLogin !== false, // 기본값 true - 명시적으로 false를 보낼 때만 수동 입력 모드
     panelOpacity: safeOpacity, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
@@ -534,7 +537,9 @@ async function runStartupAutoLaunch() {
   for (const serviceKey of steps) {
     try {
       console.log(`[PortalPet] 시작 시 자동 실행: ${serviceKey}`);
-      await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+      await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
+        minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
+      });
     } catch (err) {
       console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);
     }

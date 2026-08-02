@@ -70,6 +70,11 @@ let lastBrowserProfileKey = null; // 프로필을 바꾸면 기존 컨텍스트�
 // closeExtraPages는 이 목록에 있는 탭은 leftover 팝업으로 오인해 닫지 않는다 - 그래야 사용자가
 // 다른 메뉴로 새로 연 탭이 다음 클릭 때 자동으로 닫혀버리는 일이 없다.
 const mainServiceTabs = new Set();
+// (신규, 사용자 요청: "메신저 실행 시 최소화하기를 설정 옵션으로 넣어줘") launchService 호출
+// 체인이 꽤 깊어서(openGoneSubMenu -> clickFirstMatchFollowingPopup -> clickAndFollowPopup)
+// 매개변수로 계속 넘기는 대신, sharedPage/mainServiceTabs와 같은 방식으로 모듈 전역 상태로
+// 관리한다 - launchService 시작 시 매번 사용자 설정값으로 갱신된다. 기본값은 true(켬).
+let minimizeMessengerOnLaunchEnabled = true;
 
 /**
  * 새 프로필 특유의 "비밀번호를 저장하시겠습니까?" 팝업을 프로필 설정 파일에서 직접 꺼둔다.
@@ -2079,8 +2084,9 @@ async function clickAndFollowPopup(context, page, el, label) {
     if (await isBrityMessengerLauncherPage(popup)) {
       console.log(`[PortalPet] "${label}" opened a Brity Messenger native-launch bridge tab (not a real screen) - keeping the original G-ONE tab, giving the native app time to launch before closing the bridge`);
       // (신규, 사용자 요청) 메신저가 전면에 튀어나와 방해된다는 피드백 - 실행을 트리거하기 전에
-      // 미리 감시를 시작해서, 실제로 새 창이 전면에 뜨는 순간을 놓치지 않는다.
-      minimizeNewlyOpenedNativeWindow();
+      // 미리 감시를 시작해서, 실제로 새 창이 전면에 뜨는 순간을 놓치지 않는다. 설정에서 끄면
+      // (minimizeMessengerOnLaunchEnabled) 감시 자체를 시작하지 않는다.
+      if (minimizeMessengerOnLaunchEnabled) minimizeNewlyOpenedNativeWindow();
       // (개선) brityaltsso:// 링크를 직접 뽑아 shell.openExternal로 우리가 바로 실행할 수
       // 있으면(tryLaunchBrityMessengerDirectly), 크롬의 커스텀 프로토콜 처리에 기대는 고정
       // 대기가 필요 없다. 실패하면(화면 구성이 바뀌었을 가능성 등) 기존 방식대로 넉넉히
@@ -2330,8 +2336,11 @@ async function tryEnterSystemFromExistingPortalHome(context, targetPage, subdoma
 /**
  * PortalPet에서 서비스 버튼 클릭 시 호출되는 진입점.
  */
-async function launchService(serviceKey, subdomain, password, browserProfile = null, browserChannel = 'chrome') {
+async function launchService(serviceKey, subdomain, password, browserProfile = null, browserChannel = 'chrome', options = {}) {
   console.log(`[PortalPet] launchService(${serviceKey}, ${subdomain}, ${browserChannel})`);
+  // (신규, 사용자 요청) 설정 옵션("메신저 실행 시 최소화하기")을 이번 호출 동안 쓸 모듈 전역
+  // 플래그에 반영한다 - 기본값 true(켬), 명시적으로 false를 넘겼을 때만 끈다.
+  minimizeMessengerOnLaunchEnabled = options.minimizeMessengerOnLaunch !== false;
   const { context } = await getContext(browserProfile, subdomain, browserChannel); // 사용자 클릭 결과는 항상 bringToFront로 보여주므로 isNew 여부와 무관
 
   const targetSystem = SERVICE_SYSTEM[serviceKey] || null;
