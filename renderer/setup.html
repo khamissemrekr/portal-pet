@@ -100,9 +100,6 @@
       <input type="radio" name="neisRoleMode" value="학급담임" style="width:auto; margin-top:0;" /> 학급담임
     </label>
     <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
-      <input type="radio" name="neisRoleMode" value="교과담임" style="width:auto; margin-top:0;" /> 교과담임
-    </label>
-    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
       <input type="radio" name="neisRoleMode" value="부서장" style="width:auto; margin-top:0;" /> 부서장
     </label>
     <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
@@ -329,7 +326,7 @@
       customLinks = Array.isArray(config?.customLinks) ? config.customLinks.map((l) => ({ ...l })) : [];
       renderCustomLinksList();
 
-      const neisRoleMode = ['학급담임', '교과담임', '부서장', 'custom'].includes(config?.neisRoleMode)
+      const neisRoleMode = ['학급담임', '부서장', 'custom'].includes(config?.neisRoleMode)
         ? config.neisRoleMode
         : '학급담임';
       neisRoleModeInputs.forEach((r) => { r.checked = r.value === neisRoleMode; });

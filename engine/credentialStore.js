@@ -23,7 +23,7 @@ function loadConfig() {
       dashboardRefreshMinutes: 5, // 확인 주기(분)
       panelAutoCloseEnabled: false, // 메뉴(펼침 패널)를 일정 시간 뒤 자동으로 접을지 여부 - 기본 꺼짐
       panelAutoCloseSeconds: 10, // 자동으로 접히기까지 걸리는 시간(초)
-      neisRoleMode: '학급담임', // 나이스 출결관리 등에서 쓸 역할 - '학급담임' | '교과담임' | '부서장' | 'custom'
+      neisRoleMode: '학급담임', // 나이스 출결관리 등에서 쓸 역할 - '학급담임' | '부서장' | 'custom'
       neisRoleCustomText: '', // neisRoleMode가 'custom'일 때 직접 입력한 역할 탭 이름
     };
   }

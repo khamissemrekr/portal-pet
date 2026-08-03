@@ -414,9 +414,10 @@ async function checkForUpdates(showResultDialog = false, parentWindow = null) {
 }
 
 // (신규, 사용자 요청) 나이스 출결관리 등에서 쓸 상단 "역할" 탭 이름은 학교/선생님마다 다를 수
-// 있어(부서장(교무기획부)처럼 특정 부서명이 붙기도 함) 설정에서 고르게 한다. 흔한 3가지(학급담임/
-// 교과담임/부서장) + 직접입력을 지원하고, 동아리담임은 제외(사용자 요청). "부서장"만 저장해도
-// switchNeisRole이 startsWith로 매칭하므로 실제 탭이 "부서장(교무기획부)"여도 그대로 찾아진다.
+// 있어(부서장(교무기획부)처럼 특정 부서명이 붙기도 함) 설정에서 고르게 한다. 흔한 것(학급담임/
+// 부서장) + 직접입력을 지원한다. 교과담임/교과전담/전담/동아리담임은 라디오 옵션에서 제외
+// (사용자 요청 - 필요하면 "직접입력"으로 커버). "부서장"만 저장해도 switchNeisRole이 startsWith로
+// 매칭하므로 실제 탭이 "부서장(교무기획부)"여도 그대로 찾아진다.
 function resolveNeisRoleLabel(config) {
   if (config.neisRoleMode === 'custom') {
     return (config.neisRoleCustomText || '').trim() || '학급담임';
@@ -467,9 +468,9 @@ ipcMain.handle('save-setup', (_evt, {
     ? Math.max(1, Math.min(600, Math.round(parsedAutoCloseSeconds)))
     : (previous.panelAutoCloseSeconds ?? 10);
 
-  // 라디오로 받은 값이 아니면(오래된 렌더러/조작된 값 등) 기본값으로 되돌린다. 동아리담임은
-  // 사용자 요청으로 라디오 옵션에서 뺐다 - 필요하면 "직접입력"으로 커버.
-  const safeNeisRoleMode = ['학급담임', '교과담임', '부서장', 'custom'].includes(neisRoleMode)
+  // 라디오로 받은 값이 아니면(오래된 렌더러/조작된 값 등) 기본값으로 되돌린다. 교과담임/
+  // 동아리담임은 사용자 요청으로 라디오 옵션에서 뺐다 - 필요하면 "직접입력"으로 커버.
+  const safeNeisRoleMode = ['학급담임', '부서장', 'custom'].includes(neisRoleMode)
     ? neisRoleMode
     : (previous.neisRoleMode ?? '학급담임');
 
@@ -489,7 +490,7 @@ ipcMain.handle('save-setup', (_evt, {
     dashboardRefreshMinutes: safeMinutes, // 기본값 5분
     panelAutoCloseEnabled: !!panelAutoCloseEnabled, // 기본값 false - 메뉴를 일정 시간 뒤 자동으로 접을지
     panelAutoCloseSeconds: safeAutoCloseSeconds, // 자동으로 접히기까지 걸리는 시간(초)
-    neisRoleMode: safeNeisRoleMode, // '학급담임' | '교과담임' | '부서장' | 'custom'
+    neisRoleMode: safeNeisRoleMode, // '학급담임' | '부서장' | 'custom'
     neisRoleCustomText: String(neisRoleCustomText || '').trim(), // neisRoleMode가 'custom'일 때의 역할 탭 이름
   };
   credentialStore.saveConfig(config);
