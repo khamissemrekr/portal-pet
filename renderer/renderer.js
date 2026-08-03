@@ -8,6 +8,7 @@ const COLUMNS = [
       { key: 'bokmu', label: '복무 신청' },
       { key: 'trip', label: '출장 신청' },
       { key: 'neis_approval', label: '나이스 결재' },
+      { key: 'neis_attendance', label: '출결관리' },
     ],
   },
   {

@@ -1604,6 +1604,106 @@ async function ensureNeisDutyMenuExpanded(page, subMenuLabel) {
 }
 
 /**
+ * (신규, 사용자 요청) 나이스 상단 "역할" 탭(예: 부서장(교무기획부)/교과담임/업무분장설정업무)을
+ * 라벨 텍스트로 찾아 전환한다. 실측 확인된 마크업(2026-08-03, 사용자가 붙여준 전체 페이지
+ * 소스): <li class="cl-navigationbar-item cl-selected"><a class="cl-navigationbar-content">
+ * <div class="cl-navigationbar-text cl-text">라벨<span class="text-transparent fs-zero"> 0단계
+ * 메뉴항목</span></div></a></li> - 화면에는 안 보이지만 DOM엔 있는 접미사(span)가 라벨
+ * 뒤에 그대로 이어붙어 textContent에 포함되므로, 정확히 일치 대신 접두(startsWith)로 비교한다.
+ * 역할 이름은 학교/선생님마다 다를 수 있어(사용자 확인) 항상 호출 쪽에서 라벨을 넘겨받는다.
+ * 이미 그 역할이 선택돼 있으면(cl-selected) 클릭하지 않고 그대로 둔다.
+ */
+async function switchNeisRole(page, roleLabel) {
+  const handle = await page.evaluateHandle((label) => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const items = [...document.querySelectorAll('.cl-navigationbar-item')];
+    return items.find((e) => {
+      const textEl = e.querySelector('.cl-navigationbar-text');
+      return textEl && norm(textEl.textContent).startsWith(label);
+    }) || null;
+  }, roleLabel).catch(() => null);
+  const item = handle && handle.asElement ? handle.asElement() : null;
+  if (!item) {
+    console.log(`[PortalPet] 나이스 역할 탭 "${roleLabel}"을 못 찾음`);
+    return false;
+  }
+  const alreadySelected = await item.evaluate((e) => e.classList.contains('cl-selected')).catch(() => false);
+  if (alreadySelected) {
+    console.log(`[PortalPet] 나이스 역할이 이미 "${roleLabel}"임 - 전환 생략`);
+    return true;
+  }
+  const link = (await item.$('a.cl-navigationbar-content')) || item;
+  await link.click({ timeout: 5000 }).catch((e) =>
+    console.log(`[PortalPet] 나이스 역할 탭 "${roleLabel}" 클릭 실패:`, e.message)
+  );
+  console.log(`[PortalPet] clicked 나이스 역할 탭 "${roleLabel}"`);
+  await page.waitForTimeout(1000); // 역할 전환 시 좌측 메뉴가 다시 그려지는 시간
+  return true;
+}
+
+/**
+ * (신규, 사용자 요청) 나이스 좌측 메뉴에서 카테고리(cl-level-1, 접혀 있으면 펼침 필요)를
+ * 펼치고 그 안의 리프(cl-level-2)를 클릭한다. ensureNeisDutyMenuExpanded와 달리 특정 이름
+ * ("복무")에 고정돼 있지 않고 카테고리/리프 라벨을 파라미터로 받는다 - 학교/선생님마다
+ * 메뉴 이름이 다를 수 있어(사용자 확인) 하드코딩하지 않기 위함. 카테고리와 리프 이름이
+ * 같은 경우(실측 확인: "출결관리" 카테고리 안에 동명의 "출결관리" 리프)가 있어 title
+ * 속성만으로는 구분이 안 되므로, DOM 구조상 카테고리는 cl-level-1, 리프는 cl-level-2라는
+ * 점으로 구분한다(실측 확인된 마크업 - a.cl-sidenavigation-item.cl-level-1[title=...],
+ * a.cl-sidenavigation-item.cl-level-2[title=...]).
+ */
+async function clickNeisSidebarLeaf(page, categoryLabel, leafLabel) {
+  const isLeafVisible = () => page.evaluate((label) => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const el = [...document.querySelectorAll('a.cl-sidenavigation-item.cl-level-2')]
+      .find((e) => norm(e.getAttribute('title')) === label);
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  }, leafLabel).catch(() => false);
+
+  if (!(await isLeafVisible())) {
+    const catHandle = await page.evaluateHandle((label) => {
+      const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+      return [...document.querySelectorAll('a.cl-sidenavigation-item.cl-level-1')]
+        .find((e) => norm(e.getAttribute('title')) === label) || null;
+    }, categoryLabel).catch(() => null);
+    const catEl = catHandle && catHandle.asElement ? catHandle.asElement() : null;
+    if (!catEl) {
+      console.log(`[PortalPet] 나이스 좌측메뉴 카테고리 "${categoryLabel}"을 못 찾음`);
+      return false;
+    }
+    await catEl.click({ timeout: 5000 }).catch((e) =>
+      console.log(`[PortalPet] 나이스 좌측메뉴 카테고리 "${categoryLabel}" 클릭 실패:`, e.message)
+    );
+    console.log(`[PortalPet] clicked 나이스 좌측메뉴 카테고리 "${categoryLabel}"`);
+    await page.waitForTimeout(600);
+  }
+
+  const leafHandle = await page.evaluateHandle((label) => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const visible = (e) => {
+      const r = e.getBoundingClientRect();
+      const s = getComputedStyle(e);
+      return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+    };
+    return [...document.querySelectorAll('a.cl-sidenavigation-item.cl-level-2')]
+      .find((e) => norm(e.getAttribute('title')) === label && visible(e)) || null;
+  }, leafLabel).catch(() => null);
+  const leafEl = leafHandle && leafHandle.asElement ? leafHandle.asElement() : null;
+  if (!leafEl) {
+    console.log(`[PortalPet] 나이스 좌측메뉴 리프 "${leafLabel}"을 못 찾음`);
+    return false;
+  }
+  await leafEl.click({ timeout: 5000 }).catch((e) =>
+    console.log(`[PortalPet] 나이스 좌측메뉴 리프 "${leafLabel}" 클릭 실패:`, e.message)
+  );
+  console.log(`[PortalPet] clicked 나이스 좌측메뉴 리프 "${leafLabel}"`);
+  await page.waitForTimeout(800);
+  return true;
+}
+
+/**
  * 표준서식 목록 같은 K-에듀파인 일부 화면은 iframe 안에 렌더링된다(참고소스 OneClickPortal도
  * 이 요소만큼은 반드시 iframe까지 재귀 탐색해서 찾는다 - searchFrames: true). page.getByText()는
  * 메인 프레임만 보기 때문에 이런 요소는 타임아웃 전엔 절대 못 찾는다. 그래서 모든 iframe까지
@@ -1861,6 +1961,42 @@ async function openNeisApproval(page, subdomain, password, alreadyOnNeis = false
   // (수정) 클릭 자체는 됐지만 그 직후(화면 전환 애니메이션 중 등)에 새 공지 팝업이 뜨는
   // 경우도 있어(사용자 재현 확인: "복무신청은 닫혔는데 나이스 결재는 안 닫힘") 마지막으로
   // 한 번 더 확인해서 닫아준다.
+  await closeAnyPopups(target);
+  return target;
+}
+
+/**
+ * (신규, 사용자 요청) 출결관리: 포털 -> 나이스(SSO) -> 상단 역할 탭을 roleLabel로 전환
+ * -> 좌측 메뉴에서 categoryLabel 카테고리를 펼쳐 leafLabel 리프 클릭. 실측 확인된 경로
+ * (2026-08-03, 사용자가 붙여준 전체 페이지 소스): "부서장(교무기획부)" 역할 -> 좌측
+ * "출결관리"(cl-level-1) 카테고리를 펼치면 그 안에 동명의 "출결관리"(cl-level-2) 리프가
+ * 있다(breadcrumb: 부서장(교무기획부) > 학적 > 출결관리 > 출결관리). 역할/카테고리/리프
+ * 이름은 학교·선생님마다 다를 수 있다고 사용자가 확인해줬기 때문에 하드코딩하지 않고
+ * 모두 파라미터로 받는다 - 실제 값은 호출부(launchService)에서 지정한다.
+ */
+async function openNeisRoleMenu(page, subdomain, password, alreadyOnNeis = false, { roleLabel, categoryLabel, leafLabel }) {
+  let target = page;
+  if (alreadyOnNeis) {
+    console.log('[PortalPet] 이미 나이스에 있음 - 포털 홈 재방문 생략');
+  } else {
+    await ensureOnPortalHome(page, subdomain);
+    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
+    await target.waitForTimeout(1500);
+  }
+  // openNeisSubMenu/openNeisApproval과 동일한 이유 - alreadyOnNeis 여부와 무관하게 매번
+  // 공지 팝업을 닫고, 신청서 창이 좌측 메뉴를 가리고 있으면 먼저 닫는다.
+  await closeAnyPopupsForAWhile(target);
+  if (alreadyOnNeis && (await isNeisRequestPopupVisible(target))) {
+    await closeNeisRequestPopup(target);
+  }
+  await switchNeisRole(target, roleLabel);
+  // 역할 전환 직후에도 공지 팝업이 새로 뜰 수 있어(다른 메뉴 진입 때와 동일한 레이스) 한 번 더 지켜본다.
+  await closeAnyPopupsForAWhile(target);
+  const clicked = await clickNeisSidebarLeaf(target, categoryLabel, leafLabel);
+  if (!clicked) {
+    console.log(`[PortalPet] 나이스 좌측메뉴 "${categoryLabel} > ${leafLabel}" 탐색 실패`);
+  }
+  await target.waitForTimeout(500);
   await closeAnyPopups(target);
   return target;
 }
@@ -2257,7 +2393,7 @@ async function openEdmgrApproval(page, subdomain, password, alreadyOnEdmgr = fal
 // 거칠 필요가 없다(사용자 제안: "나이스에 있는지 에듀파인에 있는지 G-ONE에 있는지에 따라
 // 다시 포털 화면으로 나가지 않고 바로 다른 메뉴로 이동").
 const SERVICE_SYSTEM = {
-  neis: 'neis', bokmu: 'neis', trip: 'neis', neis_approval: 'neis',
+  neis: 'neis', bokmu: 'neis', trip: 'neis', neis_approval: 'neis', neis_attendance: 'neis',
   edufine: 'edufine', giahn: 'edufine', pumui: 'edufine', edufine_approval: 'edufine',
   gone: 'gone', gone_msg: 'gone', gone_ai: 'gone', gone_schedule: 'gone',
   edmgr_approval: 'edmgr',
@@ -2519,6 +2655,14 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       break;
     case 'neis_approval':
       targetPage = await openNeisApproval(page, subdomain, password, alreadyInTargetSystem);
+      break;
+    case 'neis_attendance':
+      // (신규, 사용자 요청) 부서장(교무기획부) 역할의 학적 > 출결관리 > 출결관리. 역할/메뉴
+      // 이름은 학교·선생님마다 다를 수 있다고 사용자가 확인해준 부분이라, 지금은 은애님
+      // 계정에서 실측 확인된 라벨을 그대로 쓴다(추후 학교별로 달라지면 설정으로 분리 필요).
+      targetPage = await openNeisRoleMenu(page, subdomain, password, alreadyInTargetSystem, {
+        roleLabel: '부서장(교무기획부)', categoryLabel: '출결관리', leafLabel: '출결관리',
+      });
       break;
     case 'gone_msg':
       targetPage = await openGoneSubMenu(context, page, subdomain, ['메신저'], password, alreadyInTargetSystem);
