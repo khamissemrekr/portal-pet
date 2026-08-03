@@ -9,6 +9,8 @@ const COLUMNS = [
       { key: 'trip', label: '출장 신청' },
       { key: 'neis_approval', label: '나이스 결재' },
       { key: 'neis_attendance', label: '출결관리' },
+      { key: 'neis_field_trip_apply', label: '체험신청서' },
+      { key: 'neis_field_trip_report', label: '체험보고서' },
     ],
   },
   {

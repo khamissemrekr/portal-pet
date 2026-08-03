@@ -2569,6 +2569,7 @@ async function openEdmgrApproval(page, subdomain, password, alreadyOnEdmgr = fal
 // 다시 포털 화면으로 나가지 않고 바로 다른 메뉴로 이동").
 const SERVICE_SYSTEM = {
   neis: 'neis', bokmu: 'neis', trip: 'neis', neis_approval: 'neis', neis_attendance: 'neis',
+  neis_field_trip_apply: 'neis', neis_field_trip_report: 'neis',
   edufine: 'edufine', giahn: 'edufine', pumui: 'edufine', edufine_approval: 'edufine',
   gone: 'gone', gone_msg: 'gone', gone_ai: 'gone', gone_schedule: 'gone',
   edmgr_approval: 'edmgr',
@@ -2837,6 +2838,18 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       // 출결관리 > 출결관리 경로 자체(카테고리/리프 이름)는 나이스 전국 공통이라 고정.
       targetPage = await openNeisRoleMenu(page, subdomain, password, alreadyInTargetSystem, {
         roleLabel: options.neisRoleLabel || '학급담임', categoryLabel: '출결관리', leafLabel: '출결관리',
+      });
+      break;
+    case 'neis_field_trip_apply':
+      // (신규, 사용자 요청, 실측 확인) 출결관리와 같은 방식 - 교외체험학습관리 카테고리 안의
+      // "교외체험학습신청서관리" 리프(카테고리와 리프 이름이 다른 경우).
+      targetPage = await openNeisRoleMenu(page, subdomain, password, alreadyInTargetSystem, {
+        roleLabel: options.neisRoleLabel || '학급담임', categoryLabel: '교외체험학습관리', leafLabel: '교외체험학습신청서관리',
+      });
+      break;
+    case 'neis_field_trip_report':
+      targetPage = await openNeisRoleMenu(page, subdomain, password, alreadyInTargetSystem, {
+        roleLabel: options.neisRoleLabel || '학급담임', categoryLabel: '교외체험학습관리', leafLabel: '교외체험학습보고서관리',
       });
       break;
     case 'gone_msg':
