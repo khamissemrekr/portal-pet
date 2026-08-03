@@ -25,6 +25,7 @@ function loadConfig() {
       panelAutoCloseSeconds: 10, // 자동으로 접히기까지 걸리는 시간(초)
       neisRoleMode: '학급담임', // 나이스 출결관리 등에서 쓸 역할 - '학급담임' | '부서장' | 'custom'
       neisRoleCustomText: '', // neisRoleMode가 'custom'일 때 직접 입력한 역할 탭 이름
+      certUserName: '', // 인증서가 여러 개 등록된 PC에서 선택할 인증서의 "사용자" 이름(비어있으면 선택 단계 생략)
     };
   }
   // 기존에 저장된 config.json에는 이 필드들이 없을 수 있어(과거 버전 사용자) 기본값으로 채워준다.
@@ -32,7 +33,7 @@ function loadConfig() {
     autoLaunchMessenger: false, autoLaunchSchedule: false, minimizeMessengerOnLaunch: true, customLinks: [], autoLogin: true,
     browserChannel: 'chrome', panelOpacity: 0.92, dashboardAutoRefresh: true, dashboardRefreshMinutes: 5,
     panelAutoCloseEnabled: false, panelAutoCloseSeconds: 10,
-    neisRoleMode: '학급담임', neisRoleCustomText: '',
+    neisRoleMode: '학급담임', neisRoleCustomText: '', certUserName: '',
     ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')),
   };
 }

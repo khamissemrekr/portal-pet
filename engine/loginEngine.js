@@ -75,6 +75,11 @@ const mainServiceTabs = new Set();
 // 매개변수로 계속 넘기는 대신, sharedPage/mainServiceTabs와 같은 방식으로 모듈 전역 상태로
 // 관리한다 - launchService 시작 시 매번 사용자 설정값으로 갱신된다. 기본값은 true(켬).
 let minimizeMessengerOnLaunchEnabled = true;
+// (신규, 사용자 요청: "인증서가 여러 개인 경우 사용자 이름으로 구분") completeCertLoginIfNeeded는
+// goToPortalMenu/openNeisRoleMenu 등 여러 함수를 거쳐 호출 체인이 깊어서(위 이유와 동일)
+// 매개변수로 계속 넘기는 대신 모듈 전역으로 관리한다. 빈 문자열이면(설정 안 함, 또는 인증서가
+// 하나뿐인 대부분의 경우) 아무것도 하지 않고 예전 동작(비밀번호 입력창에 바로 타이핑) 그대로다.
+let certUserNameToSelect = '';
 
 /**
  * 새 프로필 특유의 "비밀번호를 저장하시겠습니까?" 팝업을 프로필 설정 파일에서 직접 꺼둔다.
@@ -649,6 +654,15 @@ async function completeCertLoginIfNeeded(page, password) {
   if (!appeared) {
     console.log('[PortalPet] no cert modal found - page title:', await page.title().catch(() => '?'), 'url:', page.url());
     return { loggedIn: 'already-or-not-required' };
+  }
+
+  if (certUserNameToSelect) {
+    // (신규, 사용자 요청: "인증서가 여러 개인 경우 사용자 이름으로 구분") 이 PC에 인증서가
+    // 여러 개 등록돼 있으면 목록 중 어떤 게 기본 선택돼 있을지 보장이 안 돼 엉뚱한 인증서로
+    // 로그인 시도할 위험이 있다 - 설정에 저장된 사용자 이름이 적힌 행을 먼저 찾아 클릭해
+    // 그 인증서를 선택한다. 정확한 목록 마크업은 몰라도 clickText(텍스트 기반 클릭)로 충분하고,
+    // 인증서가 하나뿐이면 못 찾아도(또는 이미 선택돼 있어도) 무해하므로 실패는 무시한다.
+    await clickText(page, certUserNameToSelect, { exact: false, timeout: 3000 });
   }
 
   if (!password) {
@@ -2678,6 +2692,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // (신규, 사용자 요청) 설정 옵션("메신저 실행 시 최소화하기")을 이번 호출 동안 쓸 모듈 전역
   // 플래그에 반영한다 - 기본값 true(켬), 명시적으로 false를 넘겼을 때만 끈다.
   minimizeMessengerOnLaunchEnabled = options.minimizeMessengerOnLaunch !== false;
+  certUserNameToSelect = (options.certUserName || '').trim();
   const { context } = await getContext(browserProfile, subdomain, browserChannel); // 사용자 클릭 결과는 항상 bringToFront로 보여주므로 isNew 여부와 무관
 
   const targetSystem = SERVICE_SYSTEM[serviceKey] || null;
@@ -2953,8 +2968,9 @@ function extractPortalDashboardCounts() {
  * launchService/checkEdufineApprovalCount(수동 버튼용)와 달리 끝나고 나서 창을 사용자 앞으로
  * 가져오지 않는다(bringToFront 호출 안 함 - 작업 중인 화면을 방해하지 않기 위함).
  */
-async function checkPortalDashboard(subdomain, password, browserProfile = null, browserChannel = 'chrome') {
+async function checkPortalDashboard(subdomain, password, browserProfile = null, browserChannel = 'chrome', options = {}) {
   console.log(`[PortalPet] checkPortalDashboard(${subdomain}, ${browserChannel})`);
+  certUserNameToSelect = (options.certUserName || '').trim();
   const { context, isNew } = await getContext(browserProfile, subdomain, browserChannel);
 
   // (신규, 사용자 요청) shouldOpenNewTabFor는 "마지막으로 쓴 탭"(sharedPage)만 보고 판단하는데,

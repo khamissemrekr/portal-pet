@@ -53,6 +53,15 @@
   </div>
   <div class="note" style="margin-top:12px;">지역: <b style="color:#fff;">경기</b> (다른 지역 선택 기능은 현재 숨겨져 있습니다)</div>
 
+  <label>인증서 사용자 이름 (선택)
+    <input id="certUserName" />
+  </label>
+  <div class="note">
+    이 PC에 인증서가 여러 개 등록돼 있을 때만 입력하세요. 이름만 입력하면 됩니다(앞뒤에 붙는
+    숫자는 몰라도 됩니다) - 인증서 선택 목록에서 이 이름이 포함된 인증서를 먼저 골라 선택한 뒤
+    비밀번호를 입력합니다. 인증서가 하나뿐이면 비워두면 됩니다.
+  </div>
+
   <label>인증서 비밀번호
     <div style="display:flex; gap:6px;">
       <input id="password" type="password" style="flex:1;" />
@@ -332,6 +341,7 @@
       neisRoleModeInputs.forEach((r) => { r.checked = r.value === neisRoleMode; });
       neisRoleCustomTextInput.value = config?.neisRoleCustomText || '';
       syncNeisRoleCustomVisibility();
+      document.getElementById('certUserName').value = config?.certUserName || '';
     }
     init();
 
@@ -373,11 +383,12 @@
         alert('나이스 역할 "직접입력"을 골랐으면 역할 탭 이름을 입력하세요.');
         return;
       }
+      const certUserName = document.getElementById('certUserName').value.trim();
       await window.portalPet.saveSetup({
         region, subdomain, password, browserProfile, browserChannel, autoStartOnLogin,
         autoLaunchMessenger, autoLaunchSchedule, minimizeMessengerOnLaunch,
         customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
-        panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText,
+        panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
       });
     });
   </script>

@@ -244,6 +244,7 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
     const result = await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
       neisRoleLabel: resolveNeisRoleLabel(config),
+      certUserName: config.certUserName || '',
     });
     return result;
   } catch (err) {
@@ -439,7 +440,7 @@ ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
-  neisRoleMode, neisRoleCustomText,
+  neisRoleMode, neisRoleCustomText, certUserName,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
@@ -492,6 +493,7 @@ ipcMain.handle('save-setup', (_evt, {
     panelAutoCloseSeconds: safeAutoCloseSeconds, // 자동으로 접히기까지 걸리는 시간(초)
     neisRoleMode: safeNeisRoleMode, // '학급담임' | '부서장' | 'custom'
     neisRoleCustomText: String(neisRoleCustomText || '').trim(), // neisRoleMode가 'custom'일 때의 역할 탭 이름
+    certUserName: String(certUserName || '').trim(), // 인증서가 여러 개일 때 선택할 인증서의 "사용자" 이름
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();
@@ -562,6 +564,7 @@ async function runStartupAutoLaunch() {
       await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
         minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
         neisRoleLabel: resolveNeisRoleLabel(config),
+        certUserName: config.certUserName || '',
       });
     } catch (err) {
       console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);
@@ -677,7 +680,9 @@ async function runDashboardRefresh() {
 
   try {
     console.log('[PortalPet] 결재 현황 자동 확인 실행...');
-    const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+    const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
+      certUserName: config.certUserName || '',
+    });
     notifyDashboardIncreases(result);
     if (win && !win.isDestroyed()) win.webContents.send('portal-dashboard-updated', result);
   } catch (err) {
@@ -699,7 +704,9 @@ ipcMain.handle('refresh-portal-dashboard', async () => {
     ? credentialStore.decryptPassword(config.encryptedPasswordBase64)
     : null;
   try {
-    const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome');
+    const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
+      certUserName: config.certUserName || '',
+    });
     notifyDashboardIncreases(result); // 수동 새로고침도 정기 확인과 동일하게 증가분 알림 대상에 포함
     return result;
   } catch (err) {
