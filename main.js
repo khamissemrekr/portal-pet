@@ -243,6 +243,7 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
   try {
     const result = await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
+      neisRoleLabel: resolveNeisRoleLabel(config),
     });
     return result;
   } catch (err) {
@@ -412,6 +413,17 @@ async function checkForUpdates(showResultDialog = false, parentWindow = null) {
   }
 }
 
+// (신규, 사용자 요청) 나이스 출결관리 등에서 쓸 상단 "역할" 탭 이름은 학교/선생님마다 다를 수
+// 있어(부서장(교무기획부)처럼 특정 부서명이 붙기도 함) 설정에서 고르게 한다. 흔한 3가지(학급담임/
+// 교과담임/부서장) + 직접입력을 지원하고, 동아리담임은 제외(사용자 요청). "부서장"만 저장해도
+// switchNeisRole이 startsWith로 매칭하므로 실제 탭이 "부서장(교무기획부)"여도 그대로 찾아진다.
+function resolveNeisRoleLabel(config) {
+  if (config.neisRoleMode === 'custom') {
+    return (config.neisRoleCustomText || '').trim() || '학급담임';
+  }
+  return config.neisRoleMode || '학급담임';
+}
+
 // 사용자가 입력한 자주 가는 사이트 목록을 정리한다: 이름/주소 둘 다 있는 항목만, 앞뒤 공백
 // 제거, 프로토콜 없이 입력했으면(예: "naver.com") https://를 붙여준다.
 function sanitizeCustomLinks(customLinks) {
@@ -426,6 +438,7 @@ ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
+  neisRoleMode, neisRoleCustomText,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
@@ -454,6 +467,12 @@ ipcMain.handle('save-setup', (_evt, {
     ? Math.max(1, Math.min(600, Math.round(parsedAutoCloseSeconds)))
     : (previous.panelAutoCloseSeconds ?? 10);
 
+  // 라디오로 받은 값이 아니면(오래된 렌더러/조작된 값 등) 기본값으로 되돌린다. 동아리담임은
+  // 사용자 요청으로 라디오 옵션에서 뺐다 - 필요하면 "직접입력"으로 커버.
+  const safeNeisRoleMode = ['학급담임', '교과담임', '부서장', 'custom'].includes(neisRoleMode)
+    ? neisRoleMode
+    : (previous.neisRoleMode ?? '학급담임');
+
   const config = {
     region,
     subdomain: subdomain || REGIONS[region] || '',
@@ -470,6 +489,8 @@ ipcMain.handle('save-setup', (_evt, {
     dashboardRefreshMinutes: safeMinutes, // 기본값 5분
     panelAutoCloseEnabled: !!panelAutoCloseEnabled, // 기본값 false - 메뉴를 일정 시간 뒤 자동으로 접을지
     panelAutoCloseSeconds: safeAutoCloseSeconds, // 자동으로 접히기까지 걸리는 시간(초)
+    neisRoleMode: safeNeisRoleMode, // '학급담임' | '교과담임' | '부서장' | 'custom'
+    neisRoleCustomText: String(neisRoleCustomText || '').trim(), // neisRoleMode가 'custom'일 때의 역할 탭 이름
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();
@@ -539,6 +560,7 @@ async function runStartupAutoLaunch() {
       console.log(`[PortalPet] 시작 시 자동 실행: ${serviceKey}`);
       await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
         minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
+        neisRoleLabel: resolveNeisRoleLabel(config),
       });
     } catch (err) {
       console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);

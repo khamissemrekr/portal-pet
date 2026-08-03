@@ -842,15 +842,25 @@ function isTopmostClosableDialogPresentInPage() {
   const dialogs = [...document.querySelectorAll('.cl-dialog, [role="dialog"]')].filter(isVisible);
   if (!dialogs.length) return false;
 
+  // (버그 수정, 사용자 재현: "공지 창을 닫는 기능이 작동하지 않는다") "윈도우창을 닫으시겠습니까?"
+  // 같은 확인 다이얼로그(aria-modal="true")는 자기 자신에 z-index 인라인 스타일을 안 붙이는
+  // 경우가 있어(실측 확인), 그 뒤에 있는 공지 팝업이 명시적 z-index:1을 갖고 있으면 z-index만
+  // 비교했을 때 오히려 공지 팝업이 "가장 위"로 잘못 뽑힌다 - 실제로는 확인 다이얼로그가 화면
+  // 맨 위에 떠서 다른 모든 조작을 막고 있는데도 그 밑의 이미 닫기 시도가 끝난(TRIED_ATTR)
+  // 공지 팝업만 계속 다시 보게 되어 영원히 안 닫히는 것처럼 보였다. aria-modal="true"인
+  // 다이얼로그가 있으면 그게 진짜로 화면을 막고 있는 것이므로 z-index와 무관하게 최우선한다.
+  const modalDialogs = dialogs.filter((d) => d.getAttribute('aria-modal') === 'true');
+  const candidates = modalDialogs.length ? modalDialogs : dialogs;
+
   const zIndexOf = (e) => {
     const z = parseInt(getComputedStyle(e).zIndex, 10);
     return Number.isFinite(z) ? z : 0;
   };
-  let topDialog = dialogs[0];
+  let topDialog = candidates[0];
   let topZ = zIndexOf(topDialog);
-  for (let i = 1; i < dialogs.length; i++) {
-    const z = zIndexOf(dialogs[i]);
-    if (z >= topZ) { topDialog = dialogs[i]; topZ = z; }
+  for (let i = 1; i < candidates.length; i++) {
+    const z = zIndexOf(candidates[i]);
+    if (z >= topZ) { topDialog = candidates[i]; topZ = z; }
   }
 
   const hasFormInputs = (el) => [...el.querySelectorAll(
@@ -875,16 +885,25 @@ function findTopmostDialogCloseButtonInPage() {
   const dialogs = [...document.querySelectorAll('.cl-dialog, [role="dialog"]')].filter(isVisible);
   if (!dialogs.length) return null;
 
+  // (버그 수정, 사용자 재현: "공지 창을 닫는 기능이 작동하지 않는다") isTopmostClosableDialogPresentInPage
+  // 와 동일한 이유 - "윈도우창을 닫으시겠습니까?" 확인창(aria-modal="true")은 z-index 인라인
+  // 스타일이 없어서, 명시적 z-index:1을 가진 그 밑의 공지 팝업이 z-index 비교에서 잘못
+  // "가장 위"로 뽑혀 이미 닫기 시도가 끝난(TRIED_ATTR) 그 팝업만 계속 다시 보게 되고, 정작
+  // 화면을 막고 있는 확인창의 "확인" 버튼은 영영 못 찾았다. aria-modal="true" 다이얼로그가
+  // 있으면 z-index와 무관하게 그것부터 본다.
+  const modalDialogs = dialogs.filter((d) => d.getAttribute('aria-modal') === 'true');
+  const candidates = modalDialogs.length ? modalDialogs : dialogs;
+
   const zIndexOf = (e) => {
     const z = parseInt(getComputedStyle(e).zIndex, 10);
     return Number.isFinite(z) ? z : 0;
   };
-  let topDialog = dialogs[0];
+  let topDialog = candidates[0];
   let topZ = zIndexOf(topDialog);
-  for (let i = 1; i < dialogs.length; i++) {
-    const z = zIndexOf(dialogs[i]);
+  for (let i = 1; i < candidates.length; i++) {
+    const z = zIndexOf(candidates[i]);
     // z-index가 더 크거나 같으면(동률이면 DOM상 나중에 뜬 쪽을 더 위로 취급) 갱신한다.
-    if (z >= topZ) { topDialog = dialogs[i]; topZ = z; }
+    if (z >= topZ) { topDialog = candidates[i]; topZ = z; }
   }
 
   // (버그 수정) 근무상황신청/출장신청/기안문 작성 같은 실제 업무 화면도 같은 "cl-dialog"/
@@ -917,10 +936,10 @@ function findTopmostDialogCloseButtonInPage() {
   }
 
   const texts = ['닫기', '확인'];
-  const candidates = [...topDialog.querySelectorAll('*')]
+  const closeButtonCandidates = [...topDialog.querySelectorAll('*')]
     .filter((e) => isVisible(e) && texts.includes((e.textContent || '').trim()) && !e.hasAttribute(TRIED_ATTR))
     .sort((a, b) => a.children.length - b.children.length);
-  const leaf = candidates[0];
+  const leaf = closeButtonCandidates[0];
   if (!leaf) return null;
   const target = leaf.closest('button,a,[role="button"]') || leaf;
   target.setAttribute(TRIED_ATTR, '1');
@@ -1614,29 +1633,54 @@ async function ensureNeisDutyMenuExpanded(page, subMenuLabel) {
  * 이미 그 역할이 선택돼 있으면(cl-selected) 클릭하지 않고 그대로 둔다.
  */
 async function switchNeisRole(page, roleLabel) {
+  // (수정, 사용자 요청) 설정에서 고른/입력한 역할이 그 계정의 상단 탭에 그대로 없을 수 있다
+  // (학교마다 역할 탭 구성이 다름 - 실측 확인: 은애님 계정엔 "학급담임"이 없고 "교과담임"/
+  // "부서장(교무기획부)"만 있음). 정확히 일치하는 탭이 없으면 순서대로 대체 탐색한다: 1차
+  // "학급"/"담임"이 들어간 탭(담임 업무가 출결관리와 가장 관련 깊음), 2차 "부서장"/"부장"이
+  // 들어간 관리자급 탭(권한이 넓어 대부분의 메뉴에 접근 가능한 경우가 많음).
+  // (수정, 사용자 요청) "담임"만 보고 매칭하면 "교과담임"(교과 전담이라 학급 출결 담당이
+  // 아님)까지 걸려버린다(실측 확인: 대체 탐색 1차가 "교과담임"을 집어버림) - 동아리담임과
+  // 마찬가지로 교과담임/교과전담/전담은 1차 탐색에서 제외한다.
   const handle = await page.evaluateHandle((label) => {
     const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
     const items = [...document.querySelectorAll('.cl-navigationbar-item')];
-    return items.find((e) => {
+    const textOf = (e) => {
       const textEl = e.querySelector('.cl-navigationbar-text');
-      return textEl && norm(textEl.textContent).startsWith(label);
-    }) || null;
+      return textEl ? norm(textEl.textContent) : '';
+    };
+    const EXCLUDED_KEYWORDS = ['동아리담임', '교과담임', '교과전담', '전담'];
+    const isExcluded = (t) => EXCLUDED_KEYWORDS.some((k) => t.includes(k));
+    return items.find((e) => textOf(e).startsWith(label))
+      || items.find((e) => { const t = textOf(e); return !isExcluded(t) && (t.includes('학급') || t.includes('담임')); })
+      || items.find((e) => { const t = textOf(e); return t.includes('부서장') || t.includes('부장'); })
+      || null;
   }, roleLabel).catch(() => null);
   const item = handle && handle.asElement ? handle.asElement() : null;
   if (!item) {
-    console.log(`[PortalPet] 나이스 역할 탭 "${roleLabel}"을 못 찾음`);
+    console.log(`[PortalPet] 나이스 역할 탭 "${roleLabel}"을 못 찾음(학급/담임, 부서장/부장 대체 탐색도 실패)`);
     return false;
+  }
+  const matchedLabel = await item.evaluate((e) => {
+    // 라벨 뒤에 안 보이는 접미사(예: "0단계 메뉴항목")가 textContent에 그대로 붙어 나오므로
+    // 로그가 지저분해지지 않도록 잘라낸다(매칭 자체는 이미 끝났으니 표시용일 뿐).
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim().replace(/\s*\d+단계(\s*메뉴항목)?$/, '');
+    const textEl = e.querySelector('.cl-navigationbar-text');
+    return textEl ? norm(textEl.textContent) : '';
+  }).catch(() => '');
+  const displayLabel = matchedLabel || roleLabel;
+  if (matchedLabel && !matchedLabel.startsWith(roleLabel)) {
+    console.log(`[PortalPet] 나이스 역할 탭 "${roleLabel}"을 못 찾아 비슷한 역할 "${matchedLabel}"로 대체`);
   }
   const alreadySelected = await item.evaluate((e) => e.classList.contains('cl-selected')).catch(() => false);
   if (alreadySelected) {
-    console.log(`[PortalPet] 나이스 역할이 이미 "${roleLabel}"임 - 전환 생략`);
+    console.log(`[PortalPet] 나이스 역할이 이미 "${displayLabel}"임 - 전환 생략`);
     return true;
   }
   const link = (await item.$('a.cl-navigationbar-content')) || item;
   await link.click({ timeout: 5000 }).catch((e) =>
-    console.log(`[PortalPet] 나이스 역할 탭 "${roleLabel}" 클릭 실패:`, e.message)
+    console.log(`[PortalPet] 나이스 역할 탭 "${displayLabel}" 클릭 실패:`, e.message)
   );
-  console.log(`[PortalPet] clicked 나이스 역할 탭 "${roleLabel}"`);
+  console.log(`[PortalPet] clicked 나이스 역할 탭 "${displayLabel}"`);
   await page.waitForTimeout(1000); // 역할 전환 시 좌측 메뉴가 다시 그려지는 시간
   return true;
 }
@@ -1673,10 +1717,14 @@ async function clickNeisSidebarLeaf(page, categoryLabel, leafLabel) {
       console.log(`[PortalPet] 나이스 좌측메뉴 카테고리 "${categoryLabel}"을 못 찾음`);
       return false;
     }
-    await catEl.click({ timeout: 5000 }).catch((e) =>
-      console.log(`[PortalPet] 나이스 좌측메뉴 카테고리 "${categoryLabel}" 클릭 실패:`, e.message)
-    );
-    console.log(`[PortalPet] clicked 나이스 좌측메뉴 카테고리 "${categoryLabel}"`);
+    let categoryClicked = true;
+    await catEl.click({ timeout: 5000 }).catch((e) => {
+      categoryClicked = false;
+      console.log(`[PortalPet] 나이스 좌측메뉴 카테고리 "${categoryLabel}" 클릭 실패:`, e.message);
+    });
+    if (categoryClicked) {
+      console.log(`[PortalPet] clicked 나이스 좌측메뉴 카테고리 "${categoryLabel}"`);
+    }
     await page.waitForTimeout(600);
   }
 
@@ -1966,13 +2014,111 @@ async function openNeisApproval(page, subdomain, password, alreadyOnNeis = false
 }
 
 /**
+ * (신규, 사용자 요청, 진단 4회차로 확인) "출결관리" 접근 실패의 진짜 원인: 나이스 좌측
+ * "aside" 영역은 화면 맨 왼쪽 세로 아이콘 바(기본메뉴 및 승인사항/화면 메뉴/나의 할일/
+ * 메뉴 검색/즐겨찾기/개인설정/민원 현황 알림, data-usr-grpmenu 속성으로 구분됨)로 전환되는
+ * 여러 패널 중 하나이며, 기본으로 활성화된 건 "기본메뉴 및 승인사항"(승인 현황 대시보드)
+ * 이지 실제 카테고리 트리("화면 메뉴", data-usr-grpmenu="grpMn")가 아니다(실측 확인:
+ * 사용자가 붙여준 전체 페이지 소스 - "화면 메뉴" 버튼은 안 보이는 패널을, "기본메뉴 및
+ * 승인사항" 버튼(class에 selected 포함)은 현재 켜진 패널을 가리켰다). 3차 진단에서 발견한
+ * 역할 탭 안의 "학적" 드롭다운은 착각이었다 - "화면 메뉴" 패널 안의 카테고리 트리는 역할별로
+ * 이미 모든 도메인(학적/취학관리/공시항목관리/통계 등)이 하나로 합쳐진 전체 목록이라 별도
+ * 도메인 선택이 필요 없다. 그래서 카테고리를 찾기 전에 "화면 메뉴" 아이콘을 한 번 클릭해
+ * aside를 카테고리 트리로 전환하기만 하면 된다.
+ */
+/**
+ * (신규, 사용자 제공 스크린샷으로 확인, 2026-08-03) 역할 탭(예: "부서장(교무기획부)")에
+ * 마우스를 올리면 그 아래 전체 화면 너비의 메가메뉴가 펼쳐지는데, 도메인별 컬럼(경영지원/
+ * 학교정보/교육과정/학적/학생생활/성적/학생부/개별화교육계획/보건/입학 등)로 나뉘어 각
+ * cl-level-1 카테고리가 바로 클릭 가능한 링크로 나열돼 있다(실측 확인: "학적" 컬럼 안에
+ * "출결관리"가 있음). 이 링크를 클릭하면 좌측 aside가 "화면 메뉴"로 전환되면서 해당
+ * 카테고리가 자동으로 펼쳐지는 것으로 보인다 - ensureNeisScreenMenuAsideActive +
+ * clickNeisSidebarLeaf의 카테고리 클릭 단계를 대신할 수 있는 더 직접적인 경로라 먼저
+ * 시도한다(실패해도 그 두 함수가 안전망으로 뒤에 남아 있어 무해하다).
+ */
+async function clickNeisRoleMegaMenuCategory(page, roleLabel, categoryLabel) {
+  const isVisible = () => page.evaluate((label) => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const el = [...document.querySelectorAll('.cl-navigationbar-listitem')]
+      .find((e) => norm(e.textContent).startsWith(label) && norm(e.textContent).length < 30);
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  }, categoryLabel).catch(() => false);
+
+  if (!(await isVisible())) {
+    const roleHandle = await page.evaluateHandle((label) => {
+      const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+      const items = [...document.querySelectorAll('.cl-navigationbar-item')];
+      return items.find((e) => {
+        const textEl = e.querySelector('.cl-navigationbar-text');
+        return textEl && norm(textEl.textContent).startsWith(label);
+      }) || null;
+    }, roleLabel).catch(() => null);
+    const roleEl = roleHandle && roleHandle.asElement ? roleHandle.asElement() : null;
+    if (roleEl) {
+      await roleEl.hover().catch(() => {});
+      await page.waitForTimeout(500);
+    }
+  }
+
+  const linkHandle = await page.evaluateHandle((label) => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const visible = (e) => {
+      const r = e.getBoundingClientRect();
+      const s = getComputedStyle(e);
+      return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+    };
+    return [...document.querySelectorAll('.cl-navigationbar-listitem')]
+      .find((e) => norm(e.textContent).startsWith(label) && norm(e.textContent).length < 30 && visible(e)) || null;
+  }, categoryLabel).catch(() => null);
+  const linkEl = linkHandle && linkHandle.asElement ? linkHandle.asElement() : null;
+  if (!linkEl) {
+    console.log(`[PortalPet] 나이스 메가메뉴에서 "${categoryLabel}"을 못 찾음(호버 후에도 안 보임)`);
+    return false;
+  }
+  await linkEl.click({ timeout: 5000 }).catch((e) =>
+    console.log(`[PortalPet] 나이스 메가메뉴 "${categoryLabel}" 클릭 실패:`, e.message)
+  );
+  console.log(`[PortalPet] clicked 나이스 메가메뉴 "${categoryLabel}"`);
+  await page.waitForTimeout(800);
+  return true;
+}
+
+async function ensureNeisScreenMenuAsideActive(page) {
+  const isActive = () => page.evaluate(() => {
+    const btn = document.querySelector('[data-usr-grpmenu="grpMn"]');
+    return !!btn && btn.classList.contains('selected');
+  }).catch(() => false);
+
+  if (await isActive()) return true;
+
+  const handle = await page.evaluateHandle(
+    () => document.querySelector('[data-usr-grpmenu="grpMn"]')
+  ).catch(() => null);
+  const el = handle && handle.asElement ? handle.asElement() : null;
+  if (!el) {
+    console.log('[PortalPet] 나이스 좌측 "화면 메뉴" 토글 버튼을 못 찾음');
+    return false;
+  }
+  await el.click({ timeout: 5000 }).catch((e) =>
+    console.log('[PortalPet] 나이스 "화면 메뉴" 토글 클릭 실패:', e.message)
+  );
+  console.log('[PortalPet] clicked 나이스 좌측 "화면 메뉴" 토글 (aside를 카테고리 트리로 전환)');
+  await page.waitForTimeout(500);
+  return true;
+}
+
+/**
  * (신규, 사용자 요청) 출결관리: 포털 -> 나이스(SSO) -> 상단 역할 탭을 roleLabel로 전환
- * -> 좌측 메뉴에서 categoryLabel 카테고리를 펼쳐 leafLabel 리프 클릭. 실측 확인된 경로
- * (2026-08-03, 사용자가 붙여준 전체 페이지 소스): "부서장(교무기획부)" 역할 -> 좌측
- * "출결관리"(cl-level-1) 카테고리를 펼치면 그 안에 동명의 "출결관리"(cl-level-2) 리프가
- * 있다(breadcrumb: 부서장(교무기획부) > 학적 > 출결관리 > 출결관리). 역할/카테고리/리프
- * 이름은 학교·선생님마다 다를 수 있다고 사용자가 확인해줬기 때문에 하드코딩하지 않고
- * 모두 파라미터로 받는다 - 실제 값은 호출부(launchService)에서 지정한다.
+ * -> 좌측 aside를 "화면 메뉴"(카테고리 트리)로 전환 -> categoryLabel 카테고리를 펼쳐
+ * leafLabel 리프 클릭. 실측 확인된 경로(2026-08-03, 사용자가 붙여준 전체 페이지 소스):
+ * "부서장(교무기획부)" 역할 -> 좌측 "출결관리"(cl-level-1) 카테고리를 펼치면 그 안에 동명의
+ * "출결관리"(cl-level-2) 리프가 있다(breadcrumb: 부서장(교무기획부) > 학적 > 출결관리 >
+ * 출결관리). 역할/카테고리/리프 이름은 학교·선생님마다 다를 수 있다고 사용자가 확인해줬기
+ * 때문에 하드코딩하지 않고 모두 파라미터로 받는다 - 실제 값은 호출부(launchService)에서
+ * 지정한다.
  */
 async function openNeisRoleMenu(page, subdomain, password, alreadyOnNeis = false, { roleLabel, categoryLabel, leafLabel }) {
   let target = page;
@@ -1992,13 +2138,42 @@ async function openNeisRoleMenu(page, subdomain, password, alreadyOnNeis = false
   await switchNeisRole(target, roleLabel);
   // 역할 전환 직후에도 공지 팝업이 새로 뜰 수 있어(다른 메뉴 진입 때와 동일한 레이스) 한 번 더 지켜본다.
   await closeAnyPopupsForAWhile(target);
+  // (신규, 사용자 재현: "부서장(교무기획부) 메뉴를 눌러서 펼쳐지는 메뉴에서 학적 아래 출결관리를
+  // 눌러야 좌측에 메뉴가 보인다") 역할 탭 호버로 펼쳐지는 메가메뉴에서 카테고리를 직접 클릭하는
+  // 경로를 먼저 시도한다 - 실패하거나 이미 다른 방법으로 aside가 전환돼 있어도 무해하므로
+  // ensureNeisScreenMenuAsideActive를 안전망으로 그대로 뒤에 남겨둔다.
+  await clickNeisRoleMegaMenuCategory(target, roleLabel, categoryLabel);
+  await ensureNeisScreenMenuAsideActive(target);
   const clicked = await clickNeisSidebarLeaf(target, categoryLabel, leafLabel);
   if (!clicked) {
     console.log(`[PortalPet] 나이스 좌측메뉴 "${categoryLabel} > ${leafLabel}" 탐색 실패`);
   }
   await target.waitForTimeout(500);
+  // (신규, 사용자 제공 실측 화면) 화면 상단 브레드크럼(.breadcrumb-item)이 실제 도착한 경로를
+  // "역할 > 카테고리 > 리프"로 정확히 보여준다 - 클릭 자체는 "성공"했지만 타이밍 이슈 등으로
+  // 엉뚱한 화면에 도착하는 경우를 잡아낼 수 있는 좋은 검증 신호라 매번 로그에 남긴다.
+  await logNeisBreadcrumbPath(target);
   await closeAnyPopups(target);
   return target;
+}
+
+/**
+ * (신규, 사용자 제공 실측 화면, 2026-08-03) 출결관리 화면 상단에 "부서장(교무기획부) > 학적 >
+ * 출결관리 > 출결관리"처럼 현재 위치를 보여주는 브레드크럼이 있다(.breadcrumb-item .cl-text).
+ * 클릭 성공 여부만으론 실제로 올바른 화면에 도착했는지 확신할 수 없어(요소를 찾아 클릭은 됐지만
+ * 클릭 직후 타이밍에 다른 화면으로 넘어가 있는 경우 등), 이 브레드크럼을 읽어 실제 도착 경로를
+ * 로그로 남긴다 - 나이스 홈처럼 브레드크럼 자체가 없는 화면도 있으니 없으면 조용히 넘어간다.
+ */
+async function logNeisBreadcrumbPath(page) {
+  const path = await page.evaluate(() => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    return [...document.querySelectorAll('.breadcrumb-item .cl-text')]
+      .map((e) => norm(e.textContent))
+      .filter(Boolean)
+      .join(' > ');
+  }).catch(() => '');
+  if (path) console.log(`[PortalPet] 나이스 현재 경로(breadcrumb): ${path}`);
+  return path;
 }
 
 /**
@@ -2657,11 +2832,11 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       targetPage = await openNeisApproval(page, subdomain, password, alreadyInTargetSystem);
       break;
     case 'neis_attendance':
-      // (신규, 사용자 요청) 부서장(교무기획부) 역할의 학적 > 출결관리 > 출결관리. 역할/메뉴
-      // 이름은 학교·선생님마다 다를 수 있다고 사용자가 확인해준 부분이라, 지금은 은애님
-      // 계정에서 실측 확인된 라벨을 그대로 쓴다(추후 학교별로 달라지면 설정으로 분리 필요).
+      // (수정, 사용자 요청) 역할 이름은 학교·선생님마다 다를 수 있어 설정 창에서 고른 값
+      // (options.neisRoleLabel - 학급담임/교과담임/부서장/직접입력)을 그대로 쓴다. 학적 >
+      // 출결관리 > 출결관리 경로 자체(카테고리/리프 이름)는 나이스 전국 공통이라 고정.
       targetPage = await openNeisRoleMenu(page, subdomain, password, alreadyInTargetSystem, {
-        roleLabel: '부서장(교무기획부)', categoryLabel: '출결관리', leafLabel: '출결관리',
+        roleLabel: options.neisRoleLabel || '학급담임', categoryLabel: '출결관리', leafLabel: '출결관리',
       });
       break;
     case 'gone_msg':

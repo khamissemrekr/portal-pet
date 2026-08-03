@@ -94,6 +94,29 @@
     단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
   </div>
 
+  <label style="margin-top:16px;">나이스 역할 (출결관리 등에서 사용)</label>
+  <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px;">
+    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
+      <input type="radio" name="neisRoleMode" value="학급담임" style="width:auto; margin-top:0;" /> 학급담임
+    </label>
+    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
+      <input type="radio" name="neisRoleMode" value="교과담임" style="width:auto; margin-top:0;" /> 교과담임
+    </label>
+    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
+      <input type="radio" name="neisRoleMode" value="부서장" style="width:auto; margin-top:0;" /> 부서장
+    </label>
+    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
+      <input type="radio" name="neisRoleMode" value="custom" style="width:auto; margin-top:0;" /> 직접입력
+    </label>
+  </div>
+  <label id="neisRoleCustomWrap" style="display:none">역할 탭 이름
+    <input id="neisRoleCustomText" placeholder="예: 동아리담임" />
+  </label>
+  <div class="note">
+    나이스 상단 "역할" 탭 이름의 앞부분과 일치하면 찾아집니다(예: "부서장"만 입력해도 "부서장(교무기획부)"
+    탭을 찾습니다). 동아리담임 등 목록에 없는 역할은 "직접입력"으로 정확한 탭 이름을 넣어주세요.
+  </div>
+
   <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
     <input id="panelAutoCloseEnabled" type="checkbox" style="width:auto; margin-top:0;" />
     <span>메뉴 자동 닫힘</span>
@@ -167,6 +190,15 @@
     const panelAutoCloseEnabledInput = document.getElementById('panelAutoCloseEnabled');
     const panelAutoCloseSecondsInput = document.getElementById('panelAutoCloseSeconds');
     const panelAutoCloseSecondsWrap = document.getElementById('panelAutoCloseSecondsWrap');
+    const neisRoleModeInputs = [...document.querySelectorAll('input[name="neisRoleMode"]')];
+    const neisRoleCustomWrap = document.getElementById('neisRoleCustomWrap');
+    const neisRoleCustomTextInput = document.getElementById('neisRoleCustomText');
+
+    function syncNeisRoleCustomVisibility() {
+      const selected = neisRoleModeInputs.find((r) => r.checked);
+      neisRoleCustomWrap.style.display = selected && selected.value === 'custom' ? 'block' : 'none';
+    }
+    neisRoleModeInputs.forEach((r) => r.addEventListener('change', syncNeisRoleCustomVisibility));
 
     regionSelect.addEventListener('change', () => {
       customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
@@ -296,6 +328,13 @@
       syncPanelAutoCloseSecondsEnabled();
       customLinks = Array.isArray(config?.customLinks) ? config.customLinks.map((l) => ({ ...l })) : [];
       renderCustomLinksList();
+
+      const neisRoleMode = ['학급담임', '교과담임', '부서장', 'custom'].includes(config?.neisRoleMode)
+        ? config.neisRoleMode
+        : '학급담임';
+      neisRoleModeInputs.forEach((r) => { r.checked = r.value === neisRoleMode; });
+      neisRoleCustomTextInput.value = config?.neisRoleCustomText || '';
+      syncNeisRoleCustomVisibility();
     }
     init();
 
@@ -330,11 +369,18 @@
       const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
       const panelAutoCloseEnabled = panelAutoCloseEnabledInput.checked;
       const panelAutoCloseSeconds = Number(panelAutoCloseSecondsInput.value) || 10;
+      const selectedNeisRole = neisRoleModeInputs.find((r) => r.checked);
+      const neisRoleMode = selectedNeisRole ? selectedNeisRole.value : '학급담임';
+      const neisRoleCustomText = neisRoleCustomTextInput.value.trim();
+      if (neisRoleMode === 'custom' && !neisRoleCustomText) {
+        alert('나이스 역할 "직접입력"을 골랐으면 역할 탭 이름을 입력하세요.');
+        return;
+      }
       await window.portalPet.saveSetup({
         region, subdomain, password, browserProfile, browserChannel, autoStartOnLogin,
         autoLaunchMessenger, autoLaunchSchedule, minimizeMessengerOnLaunch,
         customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
-        panelAutoCloseEnabled, panelAutoCloseSeconds,
+        panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText,
       });
     });
   </script>
