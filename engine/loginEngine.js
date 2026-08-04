@@ -238,6 +238,9 @@ async function getContext(browserProfile, subdomain, browserChannel = 'chrome') 
     // "브라우저가 제대로 종료되지 않았습니다" 복원 경고창/말풍선을 아예 안 띄운다.
     // 실제 사용자 프로필이든 전용 프로필이든 파일을 건드리지 않고 안전하게 적용 가능.
     '--disable-session-crashed-bubble',
+    // (사용자 요청) 창 크기 관련 인자가 없으면 이 전용 프로필에 저장된 마지막 창 크기(없으면
+    // 크롬 기본 크기)로 뜬다 - viewport:null과 함께 쓰면 항상 전체 화면으로 띄울 수 있다.
+    '--start-maximized',
   ];
   if (browserProfile) {
     args.push(`--profile-directory=${browserProfile.folder}`);
