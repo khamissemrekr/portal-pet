@@ -2043,6 +2043,7 @@ async function openNeisApproval(page, subdomain, password, alreadyOnNeis = false
   if (alreadyOnNeis && (await isNeisRequestPopupVisible(target))) {
     await closeNeisRequestPopup(target);
   }
+  await ensureNeisApprovalAsideActive(target);
   let clicked = await clickText(target, '미결/협조함');
   if (!clicked) {
     // (수정) "미결/협조함" 클릭 시도 자체가 공지사항 팝업에 가려 실패하는 경우가 실측 확인됨
@@ -2182,6 +2183,57 @@ async function ensureNeisScreenMenuAsideActive(page) {
     await page.waitForTimeout(200);
   }
   return true;
+}
+
+/**
+ * (신규, 사용자 재현: "출결관리에 있는 상태에서 나이스 결재 메뉴를 눌렀는데 아무런 변화가 없어")
+ * 좌측 aside는 여러 패널(기본메뉴 및 승인사항/화면 메뉴/나의 할일/... , data-usr-grpmenu로 구분)
+ * 중 하나만 보이는 토글식 구조다. 출결관리는 ensureNeisScreenMenuAsideActive로 aside를 "화면
+ * 메뉴"(grpMn) 카테고리 트리로 전환해두고 끝나는데, 그 상태에서 곧바로 "나이스 결재"를 누르면
+ * "미결/협조함"이 DOM에는 있지만(그래서 clickText가 hidden 요소를 16개나 찾아놓고도 클릭 못 함)
+ * 지금 켜진 패널(화면 메뉴)이 아니라 다른 패널(로그인 직후 기본으로 켜져 있던 "기본메뉴 및
+ * 승인사항")에 속해 있어 안 보이는 상태다. 그 패널의 정확한 data-usr-grpmenu 값을 하드코딩하는
+ * 대신(학교/버전마다 값이 다를 수 있음), grpMn이 아닌 나머지 토글 버튼을 순서대로 눌러보면서
+ * "미결/협조함"이 보이게 되는 패널을 찾는다 - 역할 탭 폴백 검색과 동일한 발견적 접근.
+ */
+async function isNeisApprovalLeafVisible(page) {
+  return page.evaluate(() => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const isVisible = (e) => {
+      const r = e.getBoundingClientRect();
+      const s = getComputedStyle(e);
+      return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+    };
+    const el = [...document.querySelectorAll('a.cl-sidenavigation-item')]
+      .find((e) => norm(e.getAttribute('title')) === '미결/협조함' || norm(e.textContent) === '미결/협조함');
+    return !!el && isVisible(el);
+  }).catch(() => false);
+}
+
+async function ensureNeisApprovalAsideActive(page) {
+  if (await isNeisApprovalLeafVisible(page)) return true;
+
+  const grpValues = await page.evaluate(
+    () => [...document.querySelectorAll('[data-usr-grpmenu]')].map((e) => e.getAttribute('data-usr-grpmenu'))
+  ).catch(() => []);
+
+  for (const grp of grpValues) {
+    if (grp === 'grpMn') continue; // "화면 메뉴"(카테고리 트리) - 미결/협조함이 없는 패널로 실측 확인됨
+    const handle = await page.evaluateHandle(
+      (g) => [...document.querySelectorAll('[data-usr-grpmenu]')].find((e) => e.getAttribute('data-usr-grpmenu') === g) || null,
+      grp
+    ).catch(() => null);
+    const el = handle && handle.asElement ? handle.asElement() : null;
+    if (!el) continue;
+    await el.click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    if (await isNeisApprovalLeafVisible(page)) {
+      console.log(`[PortalPet] 나이스 좌측 aside를 "${grp}" 패널로 전환해 "미결/협조함" 확보`);
+      return true;
+    }
+  }
+  console.log('[PortalPet] 나이스 좌측 aside에서 "미결/협조함"이 보이는 패널을 못 찾음');
+  return false;
 }
 
 /**
