@@ -5,7 +5,16 @@
 <title>PortalPet 설정</title>
 <style>
   body { font-family: 'Malgun Gothic', sans-serif; background: #1e1e22; color: #eee; padding: 16px; }
+  h3 { margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #fff; }
   label { display: block; margin-top: 12px; font-size: 13px; color: #ccc; }
+  /* 여러 필드를 묶는 섹션의 제목 - 그냥 필드 라벨(13px/회색)과 구분되도록 더 크고 밝게, 위쪽에
+     구분선을 둔다. */
+  .section-title {
+    display: block; margin-top: 22px; padding-top: 14px; border-top: 1px solid #3a3a40;
+    font-size: 14.5px; font-weight: 700; color: #fff;
+  }
+  .menu-group-title { font-size: 12px; font-weight: 600; color: #8fb4f5; margin-top: 10px; }
+  .menu-group-title:first-child { margin-top: 0; }
   input, select { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border-radius: 6px; border: 1px solid #555; background: #2a2a2e; color: #fff; }
   input[type="range"] { padding: 4px 0; border: none; background: transparent; }
   button { margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #4C8BF5; color: #fff; font-weight: 600; cursor: pointer; }
@@ -103,7 +112,7 @@
     단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
   </div>
 
-  <label style="margin-top:16px;">나이스 역할 (출결관리 등에서 사용)</label>
+  <label class="section-title">나이스 역할 (출결관리 등에서 사용)</label>
   <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px;">
     <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
       <input type="radio" name="neisRoleMode" value="학급담임" style="width:auto; margin-top:0;" /> 학급담임
@@ -122,6 +131,10 @@
     나이스 상단 "역할" 탭 이름의 앞부분과 일치하면 찾아집니다(예: "부서장"만 입력해도 "부서장(교무기획부)"
     탭을 찾습니다). 동아리담임 등 목록에 없는 역할은 "직접입력"으로 정확한 탭 이름을 넣어주세요.
   </div>
+
+  <label class="section-title">메뉴에 표시할 항목</label>
+  <div id="menuVisibilityList" style="margin-top:6px;"></div>
+  <div class="note">권한이 없어 안 쓰는 항목은 꺼두면 메뉴에서 숨겨집니다.</div>
 
   <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
     <input id="panelAutoCloseEnabled" type="checkbox" style="width:auto; margin-top:0;" />
@@ -205,6 +218,65 @@
       neisRoleCustomWrap.style.display = selected && selected.value === 'custom' ? 'block' : 'none';
     }
     neisRoleModeInputs.forEach((r) => r.addEventListener('change', syncNeisRoleCustomVisibility));
+
+    // (신규, 사용자 요청) 나이스/K-에듀파인/G-ONE 모든 하위 메뉴를 개별적으로 켜고 끌 수 있게
+    // 한다 - renderer.js의 COLUMNS와 항목이 같아야 한다(거기서 실제 버튼을 만든다).
+    const MENU_TOGGLE_GROUPS = [
+      {
+        label: '나이스', items: [
+          { key: 'bokmu', label: '복무 신청' },
+          { key: 'trip', label: '출장 신청' },
+          { key: 'neis_approval', label: '나이스 결재' },
+          { key: 'neis_attendance', label: '출결관리' },
+          { key: 'neis_field_trip_apply', label: '체험신청서' },
+          { key: 'neis_field_trip_report', label: '체험보고서' },
+        ],
+      },
+      {
+        label: 'K-에듀파인', items: [
+          { key: 'giahn', label: '기안문 작성' },
+          { key: 'pumui', label: '품의 작성' },
+          { key: 'edufine_approval', label: '공문 결재' },
+        ],
+      },
+      {
+        label: 'G-ONE', items: [
+          { key: 'gone_ai', label: 'AI 대화·초안' },
+          { key: 'gone_schedule', label: '일정' },
+          { key: 'edmgr_approval', label: '교데통' },
+        ],
+      },
+      {
+        label: '포털 바로가기', items: [
+          { key: 'staff_home', label: '교직원홈' },
+          { key: 'edasan', label: 'e-다산' },
+          { key: 'ginsight', label: 'G-인사이트' },
+          { key: 'hicoaching', label: '하이코칭' },
+        ],
+      },
+    ];
+    const menuVisibilityList = document.getElementById('menuVisibilityList');
+    const menuVisibilityInputs = {};
+    MENU_TOGGLE_GROUPS.forEach(({ label, items }) => {
+      const groupTitle = document.createElement('div');
+      groupTitle.className = 'menu-group-title';
+      groupTitle.textContent = label;
+      menuVisibilityList.appendChild(groupTitle);
+      items.forEach(({ key, label: itemLabel }) => {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:6px;';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = true;
+        input.style.cssText = 'width:auto; margin-top:0;';
+        const span = document.createElement('span');
+        span.textContent = itemLabel;
+        row.appendChild(input);
+        row.appendChild(span);
+        menuVisibilityList.appendChild(row);
+        menuVisibilityInputs[key] = input;
+      });
+    });
 
     regionSelect.addEventListener('change', () => {
       customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
@@ -342,6 +414,11 @@
       neisRoleCustomTextInput.value = config?.neisRoleCustomText || '';
       syncNeisRoleCustomVisibility();
       document.getElementById('certUserName').value = config?.certUserName || '';
+
+      const hiddenMenuItems = new Set(Array.isArray(config?.hiddenMenuItems) ? config.hiddenMenuItems : []);
+      Object.entries(menuVisibilityInputs).forEach(([key, input]) => {
+        input.checked = !hiddenMenuItems.has(key);
+      });
     }
     init();
 
@@ -384,11 +461,15 @@
         return;
       }
       const certUserName = document.getElementById('certUserName').value.trim();
+      const hiddenMenuItems = Object.entries(menuVisibilityInputs)
+        .filter(([, input]) => !input.checked)
+        .map(([key]) => key);
       await window.portalPet.saveSetup({
         region, subdomain, password, browserProfile, browserChannel, autoStartOnLogin,
         autoLaunchMessenger, autoLaunchSchedule, minimizeMessengerOnLaunch,
         customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
         panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
+        hiddenMenuItems,
       });
     });
   </script>

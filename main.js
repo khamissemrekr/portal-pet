@@ -128,6 +128,28 @@ function togglePanel() {
   win.webContents.send('panel-state', isExpanded);
 }
 
+// (신규, 사용자 요청: "메뉴가 늘어났을 때 팝업 메뉴의 세로가 길어지도록") 펼침 패널의 세로
+// 길이는 원래 PANEL_HEIGHT 고정값이었는데, 설정에서 메뉴 항목을 껐다 켰다 하거나 자주 가는
+// 사이트를 추가하면 실제 필요한 높이가 달라진다. 렌더러가 자기 콘텐츠의 실제 높이
+// (#panel.scrollHeight)를 측정해서 보내주면, 그 값으로 창 높이를 다시 맞춘다 - 펼쳐진
+// 상태에서만 의미가 있고(접힌 상태/미니모드는 항상 PET_SIZE 고정), 화면 밖으로 넘치지
+// 않도록 화면 높이 기준으로 상한을 둔다.
+ipcMain.on('resize-panel', (_evt, contentHeight) => {
+  if (!win || win.isDestroyed() || !isExpanded) return;
+  const display = screen.getPrimaryDisplay();
+  const { height: sh } = display.workAreaSize;
+  const maxHeight = sh - 40;
+  const newHeight = Math.max(PET_SIZE, Math.min(Math.ceil(Number(contentHeight) || 0), maxHeight));
+  const bounds = win.getBounds();
+  if (newHeight === bounds.height) return;
+  win.setBounds({
+    x: bounds.x,
+    y: Math.min(bounds.y, sh - newHeight - 20),
+    width: bounds.width,
+    height: newHeight,
+  });
+});
+
 // ===== 미니 모드: 화면 오른쪽 가장자리에 숨었다가 커서를 올리면 튀어나옴 =====
 function enterMiniMode() {
   ensureWindow();
@@ -436,11 +458,25 @@ function sanitizeCustomLinks(customLinks) {
     .map((l) => ({ label: l.label, url: /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}` }));
 }
 
+// (신규, 사용자 요청) 캐릭터 메뉴에서 개별적으로 숨길 수 있는 하위 메뉴 key 전체 목록 -
+// renderer.js의 COLUMNS와 항목이 동일해야 한다(거기서 실제 버튼을 만든다). 여기서는 설정
+// 창이 보낸 값 중 이 목록에 없는 값(오래된 렌더러/조작된 값)을 걸러내는 용도로만 쓴다.
+const TOGGLEABLE_MENU_KEYS = [
+  'bokmu', 'trip', 'neis_approval', 'neis_attendance', 'neis_field_trip_apply', 'neis_field_trip_report',
+  'giahn', 'pumui', 'edufine_approval',
+  'gone_ai', 'gone_schedule', 'edmgr_approval',
+  'staff_home', 'edasan', 'ginsight', 'hicoaching',
+];
+function sanitizeHiddenMenuItems(hiddenMenuItems) {
+  if (!Array.isArray(hiddenMenuItems)) return [];
+  return hiddenMenuItems.filter((k) => TOGGLEABLE_MENU_KEYS.includes(k));
+}
+
 ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
-  neisRoleMode, neisRoleCustomText, certUserName,
+  neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
@@ -494,6 +530,7 @@ ipcMain.handle('save-setup', (_evt, {
     neisRoleMode: safeNeisRoleMode, // '학급담임' | '부서장' | 'custom'
     neisRoleCustomText: String(neisRoleCustomText || '').trim(), // neisRoleMode가 'custom'일 때의 역할 탭 이름
     certUserName: String(certUserName || '').trim(), // 인증서가 여러 개일 때 선택할 인증서의 "사용자" 이름
+    hiddenMenuItems: sanitizeHiddenMenuItems(hiddenMenuItems), // 메뉴 패널에서 숨길 하위 메뉴 key 목록
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();

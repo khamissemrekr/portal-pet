@@ -60,6 +60,22 @@ const GONE_URL_BY_SUBDOMAIN = {
   goe: 'https://gdp.goe.go.kr/api/auth/login/ssoNeisReturn',
 };
 
+// (신규, 사용자 요청) 교직원홈페이지/e-DASAN현장지원/하이코칭도 이름 자체가 경기 지역 프로그램명
+// (e-DASAN, 하이코칭 등)이라 G-ONE과 마찬가지로 다른 지역엔 없을 가능성이 높다(미확인) - 지역별
+// 서브도메인 패턴을 추측하는 대신 실측 URL(사용자가 붙여준 포털 홈 .main-menu DOM)을 goe에만
+// 등록해둔다. goToPortalMenu가 포털 홈 실시간 DOM에서 먼저 읽어오므로, 이 값들은 그게 실패했을
+// 때의 fallback으로만 쓰인다. G-인사이트는 URL에 로그인마다 바뀌는 1회용 SSO 토큰이 포함돼
+// 있어(실측 확인) fallback으로 쓸 수 없다 - 등록하지 않는다.
+const STAFF_HOME_URL_BY_SUBDOMAIN = {
+  goe: 'https://org.goe.go.kr',
+};
+const EDASAN_URL_BY_SUBDOMAIN = {
+  goe: 'https://edasan.goe.go.kr/edasan/main.do',
+};
+const HICOACHING_URL_BY_SUBDOMAIN = {
+  goe: 'https://gth.goe.go.kr/neisConnect.do',
+};
+
 module.exports = {
   OFFICES,
   REGIONS,
@@ -69,4 +85,7 @@ module.exports = {
   buildEdufineUrl,
   buildEdmgrUrl,
   GONE_URL_BY_SUBDOMAIN,
+  STAFF_HOME_URL_BY_SUBDOMAIN,
+  EDASAN_URL_BY_SUBDOMAIN,
+  HICOACHING_URL_BY_SUBDOMAIN,
 };

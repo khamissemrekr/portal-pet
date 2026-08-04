@@ -24,7 +24,9 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 #status-dot.error { background: #ea4335; }
 
 #panel {
-  width: 300px; height: 100%;
+  /* height는 고정값이 아니라 콘텐츠에 맞춰 자연스럽게 늘어나게 auto로 둔다 - 실제 창 높이는
+     renderer.js가 이 콘텐츠 높이를 측정해서 main.js에 알려주면 그만큼 다시 맞춰준다. */
+  width: 300px; height: auto;
   background: rgba(30, 30, 34, var(--panel-alpha, 0.92));
   border-radius: 12px;
   color: #f1f1f1;
@@ -42,6 +44,13 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 
 #portal-home-wrap { margin-bottom: 6px; display: flex; gap: 6px; align-items: stretch; }
 #portal-home-wrap .service-btn { flex: 1 1 auto; box-sizing: border-box; }
+
+/* 교직원홈/e-다산/G-인사이트/하이코칭처럼 하위 메뉴 없이 그 화면으로 바로 이동만 하는 포털
+   바로가기들 - 라벨을 짧게 줄여서(사용자 요청) #portal-home-wrap처럼 가로로 나란히 두되,
+   4개라 한 줄에 다 안 들어갈 수 있어 flex-wrap으로 줄바꿈한다(한 줄에 2~3개). flex-grow를
+   0으로 둬서 마지막 줄에 남는 버튼이 억지로 늘어나 폭이 들쭉날쭉해지지 않게 한다. */
+#portal-links-wrap { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+#portal-links-wrap .service-btn { flex: 0 1 calc(33.333% - 4px); box-sizing: border-box; }
 
 /* 결재 현황(나이스 결재/공문 결재 배지) 수동 새로고침 버튼 - 정기 자동 확인과 별개로 즉시 확인. */
 .dashboard-refresh-btn {

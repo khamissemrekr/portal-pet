@@ -208,15 +208,47 @@ const portalHomeWrap = document.getElementById('portal-home-wrap');
 portalHomeWrap.appendChild(makeButton('portal_home', '업무포털 메인', true));
 portalHomeWrap.appendChild(makeDashboardRefreshButton());
 
+// (신규, 사용자 요청: "나이스/K-에듀파인/G-ONE 모두 표시 여부를 설정할 수 있도록") 학교·역할
+// 마다 권한 없는 메뉴가 다를 수 있어, 모든 하위 메뉴 버튼을 설정에서 개별적으로 숨길 수 있게
+// 한다 - subKey -> 버튼 element를 전부 기록해뒀다가, applyMenuVisibility에서
+// config.hiddenMenuItems(숨길 key 배열, 기본값 빈 배열=전부 표시)에 따라 보이기/숨기기를 적용한다.
+const menuBtnEls = {};
+
+// (신규, 사용자 요청) 하위 메뉴 없이 그 화면으로 바로 이동만 하는 포털 상단 메뉴 바로가기들 -
+// 나이스/K-에듀파인/G-ONE처럼 여러 하위 기능이 있는 시스템이 아니라 "업무포털 메인"과 같은
+// 성격이라 3열 그리드가 아니라 그 아래 별도 영역에 줄바꿈되는 좁은 버튼으로 둔다(라벨도
+// 짧게 줄여서 한 줄에 2~3개씩 들어가게 함).
+const PORTAL_LINKS = [
+  { key: 'staff_home', label: '교직원홈' },
+  { key: 'edasan', label: 'e-다산' },
+  { key: 'ginsight', label: 'G-인사이트' },
+  { key: 'hicoaching', label: '하이코칭' },
+];
+const portalLinksWrap = document.getElementById('portal-links-wrap');
+PORTAL_LINKS.forEach(({ key, label }) => {
+  const btn = makeButton(key, label, true);
+  menuBtnEls[key] = btn;
+  portalLinksWrap.appendChild(btn);
+});
+
 COLUMNS.forEach(({ key, label, subs }) => {
   const col = document.createElement('div');
   col.className = 'service-col';
   col.appendChild(makeButton(key, label, true));
   subs.forEach(({ key: subKey, label: subLabel }) => {
-    col.appendChild(makeButton(subKey, subLabel, false));
+    const btn = makeButton(subKey, subLabel, false);
+    menuBtnEls[subKey] = btn;
+    col.appendChild(btn);
   });
   servicesEl.appendChild(col);
 });
+
+function applyMenuVisibility(config) {
+  const hidden = new Set(Array.isArray(config?.hiddenMenuItems) ? config.hiddenMenuItems : []);
+  for (const [subKey, btn] of Object.entries(menuBtnEls)) {
+    btn.style.display = hidden.has(subKey) ? 'none' : '';
+  }
+}
 
 // ===== 드래그로 위치 이동 =====
 // frame:false 창이라 -webkit-app-region:drag는 클릭 토글과 충돌할 수 있어(실측 확인 필요
@@ -261,8 +293,22 @@ window.addEventListener('mouseup', (e) => {
   setPose('idle');
 });
 
+// (신규, 사용자 요청: "메뉴가 늘어났을 때 팝업 메뉴의 세로가 길어지도록") 펼침 패널의 실제
+// 콘텐츠 높이(#panel.scrollHeight)를 측정해 main.js에 보내 창 높이를 맞춘다. 패널이 숨겨진
+// 상태(display:none)에서는 scrollHeight가 0이라 측정해봐야 의미가 없으니 건너뛴다. 방금
+// display가 바뀐 직후라 레이아웃이 아직 반영 안 됐을 수 있어 requestAnimationFrame으로 한
+// 프레임 미룬 뒤 잰다.
+const panelEl = document.getElementById('panel');
+function resizePanelToContent() {
+  if (panelEl.classList.contains('hidden')) return;
+  requestAnimationFrame(() => {
+    window.portalPet.resizePanel(panelEl.scrollHeight);
+  });
+}
+
 window.portalPet.onPanelState((expanded) => {
-  document.getElementById('panel').classList.toggle('hidden', !expanded);
+  panelEl.classList.toggle('hidden', !expanded);
+  if (expanded) resizePanelToContent();
 });
 
 // 메뉴 하단 톱니 아이콘 - 트레이 메뉴를 거치지 않고 바로 설정 창을 연다.
@@ -300,6 +346,8 @@ async function loadCustomLinks() {
   const config = await window.portalPet.getConfig();
   renderCustomLinks(config?.customLinks);
   applyPanelOpacity(config);
+  applyMenuVisibility(config);
+  resizePanelToContent(); // 설정 변경으로 표시되는 항목이 바뀌면 창 높이도 다시 맞춘다.
 }
 loadCustomLinks();
 window.portalPet.onConfigUpdated(loadCustomLinks);

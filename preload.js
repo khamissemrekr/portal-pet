@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('portalPet', {
   // 드래그로 펫 위치 이동: 매 mousemove마다 화면 좌표 델타(dx, dy)만 보낸다 - 창을 프레임
   // 없이 쓰고 있어서(-webkit-app-region: drag는 클릭과 충돌할 수 있어) 직접 구현.
   movePetBy: (dx, dy) => ipcRenderer.send('move-pet-by', dx, dy),
+  // 메뉴 항목 표시/숨김, 자주 가는 사이트 개수 등에 따라 실제 콘텐츠 높이가 달라져 - 렌더러가
+  // 측정한 실제 높이(px)를 보내면 그만큼 창 높이를 다시 맞춘다.
+  resizePanel: (height) => ipcRenderer.send('resize-panel', height),
   // 자주 가는 사이트(사용자 지정 링크)는 SSO 자동화 대상이 아니라 그냥 기본 브라우저로 연다.
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   // 프로그램 정보 창(버전 표시 / 새 버전 확인 버튼)에서 사용.

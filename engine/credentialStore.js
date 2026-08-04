@@ -26,6 +26,7 @@ function loadConfig() {
       neisRoleMode: '학급담임', // 나이스 출결관리 등에서 쓸 역할 - '학급담임' | '부서장' | 'custom'
       neisRoleCustomText: '', // neisRoleMode가 'custom'일 때 직접 입력한 역할 탭 이름
       certUserName: '', // 인증서가 여러 개 등록된 PC에서 선택할 인증서의 "사용자" 이름(비어있으면 선택 단계 생략)
+      hiddenMenuItems: [], // 캐릭터 메뉴 패널에서 숨길 하위 메뉴 key 목록(예: 'neis_attendance') - 기본값 빈 배열(전부 표시)
     };
   }
   // 기존에 저장된 config.json에는 이 필드들이 없을 수 있어(과거 버전 사용자) 기본값으로 채워준다.
@@ -34,6 +35,7 @@ function loadConfig() {
     browserChannel: 'chrome', panelOpacity: 0.92, dashboardAutoRefresh: true, dashboardRefreshMinutes: 5,
     panelAutoCloseEnabled: false, panelAutoCloseSeconds: 10,
     neisRoleMode: '학급담임', neisRoleCustomText: '', certUserName: '',
+    hiddenMenuItems: [],
     ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')),
   };
 }

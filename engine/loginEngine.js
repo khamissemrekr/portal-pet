@@ -14,7 +14,10 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const os = require('node:os');
 const { app, shell } = require('electron');
-const { buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN } = require('./regionMap');
+const {
+  buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN,
+  STAFF_HOME_URL_BY_SUBDOMAIN, EDASAN_URL_BY_SUBDOMAIN, HICOACHING_URL_BY_SUBDOMAIN,
+} = require('./regionMap');
 
 // (수정) 엣지 지원 추가 - "PortalPet 전용 프로필"은 어떤 브라우저(channel)를 쓰느냐에 따라
 // 폴더를 분리한다. 크롬은 기존 사용자들의 이미 마쳐둔 보안프로그램/인증서 설정이 담긴 폴더명을
@@ -1720,7 +1723,24 @@ async function clickNeisSidebarLeaf(page, categoryLabel, leafLabel) {
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   }, leafLabel).catch(() => false);
 
+  const isCategoryVisible = () => page.evaluate((label) => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const el = [...document.querySelectorAll('a.cl-sidenavigation-item.cl-level-1')]
+      .find((e) => norm(e.getAttribute('title')) === label);
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  }, categoryLabel).catch(() => false);
+
   if (!(await isLeafVisible())) {
+    // (수정, 사용자 재현: 부서장 역할에서 출결관리 접근 실패) DOM에 카테고리 요소가 이미 있어도
+    // aside 트리가 아직 다 그려지는 중이면 잠깐 안 보이는 상태일 수 있다 - 곧바로 클릭을 시도해
+    // "element is not visible"로 실패하지 않도록, 클릭 전에 최대 2초까지 보일 때까지 폴링한다.
+    const visDeadline = Date.now() + 2000;
+    while (Date.now() < visDeadline && !(await isCategoryVisible())) {
+      await page.waitForTimeout(200);
+    }
     const catHandle = await page.evaluateHandle((label) => {
       const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
       return [...document.querySelectorAll('a.cl-sidenavigation-item.cl-level-1')]
@@ -2061,7 +2081,7 @@ async function clickNeisRoleMegaMenuCategory(page, roleLabel, categoryLabel) {
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   }, categoryLabel).catch(() => false);
 
-  if (!(await isVisible())) {
+  const hoverRoleTab = async () => {
     const roleHandle = await page.evaluateHandle((label) => {
       const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
       const items = [...document.querySelectorAll('.cl-navigationbar-item')];
@@ -2071,9 +2091,28 @@ async function clickNeisRoleMegaMenuCategory(page, roleLabel, categoryLabel) {
       }) || null;
     }, roleLabel).catch(() => null);
     const roleEl = roleHandle && roleHandle.asElement ? roleHandle.asElement() : null;
-    if (roleEl) {
-      await roleEl.hover().catch(() => {});
-      await page.waitForTimeout(500);
+    if (roleEl) await roleEl.hover().catch(() => {});
+    return !!roleEl;
+  };
+
+  // (수정, 사용자 재현: "부서장을 선택했는데 출결관리에 접근하지 못했다") 호버 직후 500ms 한
+  // 번만 확인하고 포기했더니, 나이스 페이지가 평소보다 느리게 그려지는 경우(실측 재현) 메가
+  // 메뉴가 아직 안 떴는데 못 찾은 것으로 판정해버렸다 - 최대 3초 동안 짧은 간격으로 다시
+  // 확인하고, 그래도 안 보이면 호버가 씹혔을 수 있으니 한 번 더 호버해서 마지막으로 한 번 더
+  // 지켜본다.
+  if (!(await isVisible())) {
+    await hoverRoleTab();
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline && !(await isVisible())) {
+      await page.waitForTimeout(300);
+    }
+  }
+  if (!(await isVisible())) {
+    console.log(`[PortalPet] 나이스 메가메뉴에서 "${categoryLabel}"이 여전히 안 보여 역할 탭에 다시 호버`);
+    await hoverRoleTab();
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline && !(await isVisible())) {
+      await page.waitForTimeout(300);
     }
   }
 
@@ -2120,7 +2159,13 @@ async function ensureNeisScreenMenuAsideActive(page) {
     console.log('[PortalPet] 나이스 "화면 메뉴" 토글 클릭 실패:', e.message)
   );
   console.log('[PortalPet] clicked 나이스 좌측 "화면 메뉴" 토글 (aside를 카테고리 트리로 전환)');
-  await page.waitForTimeout(500);
+  // (수정, 같은 재현 케이스) 토글 직후 고정 500ms만 기다리고 넘어갔더니 트리가 아직 다 그려지기
+  // 전에 clickNeisSidebarLeaf가 카테고리를 클릭하려다 "element is not visible"로 실패하는 경우가
+  // 있었다 - 최대 2초까지 selected 클래스가 실제로 붙을 때까지 짧게 폴링한다.
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline && !(await isActive())) {
+    await page.waitForTimeout(200);
+  }
   return true;
 }
 
@@ -2828,6 +2873,24 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       } else {
         targetPage = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
       }
+      break;
+    // (신규, 사용자 요청) 교직원홈페이지/e-DASAN현장지원/G-인사이트/하이코칭 - 단순히 포털 홈
+    // 상단 메뉴 라벨을 클릭해 이동만 하면 되는 화면들이라(더 깊은 하위 메뉴 없음) 나이스/
+    // K-에듀파인/G-ONE과 같은 SERVICE_SYSTEM 등록 없이(targetSystem=null, portal_home과 동일한
+    // 방식) 매번 goToPortalMenu만 호출한다.
+    case 'staff_home':
+      targetPage = await goToPortalMenu(page, '교직원홈페이지', { fallbackUrl: STAFF_HOME_URL_BY_SUBDOMAIN[subdomain] || null, password });
+      break;
+    case 'edasan':
+      targetPage = await goToPortalMenu(page, 'e-DASAN현장지원', { fallbackUrl: EDASAN_URL_BY_SUBDOMAIN[subdomain] || null, password });
+      break;
+    case 'ginsight':
+      // G-인사이트 실측 URL(id 속성)엔 로그인마다 바뀌는 1회용 SSO 토큰이 포함돼 있어(실측 확인)
+      // fallback으로 쓸 수 없다 - 포털 홈 DOM에서 매번 새로 읽어야 하므로 fallbackUrl 없음.
+      targetPage = await goToPortalMenu(page, 'G-인사이트', { fallbackUrl: null, password });
+      break;
+    case 'hicoaching':
+      targetPage = await goToPortalMenu(page, '하이코칭', { fallbackUrl: HICOACHING_URL_BY_SUBDOMAIN[subdomain] || null, password });
       break;
     case 'giahn':
       targetPage = await openGiahn(page, subdomain, password, alreadyInTargetSystem);
