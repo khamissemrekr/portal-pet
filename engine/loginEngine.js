@@ -1019,6 +1019,7 @@ function findNexacroNoticePopupCloseButtonInPage() {
 }
 
 async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
+  let closedAny = false;
   for (let i = 0; i < maxAttempts; i++) {
     // "다시 보지 않기"류 체크박스가 있으면 먼저 체크 - 실패해도(없어도) 무시하고 계속 진행.
     await findAndMouseClick(page, findVisibleLeafCenterInPage, {
@@ -1042,6 +1043,7 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
       const stillThere = await page.evaluate(isTopmostClosableDialogPresentInPage).catch(() => false);
       if (!stillThere) {
         console.log('[PortalPet] closed a dialog popup via Escape key (나이스 웹접근성 단축키)');
+        closedAny = true;
         await page.waitForTimeout(150);
         continue;
       }
@@ -1053,6 +1055,7 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
     const closedDialog = await findAndMouseClick(page, findTopmostDialogCloseButtonInPage);
     if (closedDialog) {
       console.log('[PortalPet] closed a dialog popup (topmost, 겹친 다이얼로그 대응)');
+      closedAny = true;
       await page.waitForTimeout(200);
       continue;
     }
@@ -1075,6 +1078,7 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
       const stillThereNexacro = await page.evaluate(isNexacroNoticePopupPresentInPage).catch(() => false);
       if (!stillThereNexacro) {
         console.log('[PortalPet] closed a Nexacro notice popup via Alt+End key (K-에듀파인 웹접근성 단축키)');
+        closedAny = true;
         await page.waitForTimeout(150);
         continue;
       }
@@ -1083,6 +1087,7 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
     const closedNexacroNotice = await findAndMouseClick(page, findNexacroNoticePopupCloseButtonInPage);
     if (closedNexacroNotice) {
       console.log('[PortalPet] closed a Nexacro notice popup (K-에듀파인 등)');
+      closedAny = true;
       await page.waitForTimeout(200);
       continue;
     }
@@ -1099,6 +1104,7 @@ async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
     // 실이 커서 제거했다.
     break;
   }
+  return closedAny;
 }
 
 /**
@@ -1241,12 +1247,21 @@ async function installPopupWatcher(page) {
  * 늦게 뜨는 팝업도 잡아낸다. 팝업이 없으면(가장 흔한 경우) 매 폴링이 거의 즉시 끝나므로
  * 체감 지연은 크지 않다.
  */
-async function closeAnyPopupsForAWhile(page, { totalWaitMs = 4000, pollMs = 500 } = {}) {
+// (수정, 사용자 피드백: "출결관리로 넘어가는 속도가 너무 느림") 예전엔 팝업이 있든 없든 항상
+// totalWaitMs(4초)를 꽉 채워서 기다렸다 - 이 함수가 openNeisRoleMenu 안에서 두 번 호출되므로
+// 팝업이 하나도 없는 정상적인 경우에도 매번 최대 8초를 그냥 날리고 있었다. 이제 마지막으로
+// 뭔가 닫은 시점 기준으로 quietMs 동안 조용하면(더 닫을 게 없다고 판단) 곧바로 빠져나온다 -
+// 늦게 뜨는 팝업 대응 능력은 유지하면서(팝업을 닫을 때마다 조용한 시간 계산이 리셋됨) 빈 대기를 없앤다.
+async function closeAnyPopupsForAWhile(page, { totalWaitMs = 4000, pollMs = 300, quietMs = 900 } = {}) {
   await closeAnyPopups(page); // 이미 떠 있는 팝업은 바로 처리
   const deadline = Date.now() + totalWaitMs;
+  // 시작 시점을 기준으로 삼아, 아무것도 못 닫았어도 quietMs 동안은 늦게 뜨는 팝업을 기다린다.
+  let lastClosedAt = Date.now();
   while (Date.now() < deadline) {
+    if (Date.now() - lastClosedAt > quietMs) break;
     await page.waitForTimeout(pollMs);
-    await closeAnyPopups(page);
+    const closed = await closeAnyPopups(page);
+    if (closed) lastClosedAt = Date.now();
   }
 }
 
