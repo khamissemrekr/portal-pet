@@ -24,6 +24,15 @@ function rotateIfTooBig() {
   }
 }
 
+// (사용자 요청) 로그 시각이 UTC(new Date().toISOString())로 찍혀서 실제 한국 시간과 9시간
+// 차이가 나 헷갈렸다 - 호스트 OS의 시간대 설정과 무관하게 항상 KST(UTC+9)로 고정 표기한다.
+function formatKst(date) {
+  const kst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `${kst.getUTCFullYear()}-${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())} ` +
+    `${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())}.${pad(kst.getUTCMilliseconds(), 3)}`;
+}
+
 function formatArg(a) {
   if (a instanceof Error) return a.stack || a.message;
   if (typeof a === 'object' && a !== null) {
@@ -35,7 +44,7 @@ function formatArg(a) {
 function appendLine(prefix, args) {
   if (!logFilePath) return;
   try {
-    const line = `[${new Date().toISOString()}] ${prefix} ${args.map(formatArg).join(' ')}\n`;
+    const line = `[${formatKst(new Date())} KST] ${prefix} ${args.map(formatArg).join(' ')}\n`;
     fs.appendFileSync(logFilePath, line, 'utf-8');
   } catch (e) {
     // 파일 쓰기 실패(디스크 꽉 참 등)해도 앱 동작에 영향을 주면 안 되니 조용히 무시
