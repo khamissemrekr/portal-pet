@@ -1676,6 +1676,20 @@ async function switchNeisRole(page, roleLabel) {
   // (수정, 사용자 요청) "담임"만 보고 매칭하면 "교과담임"(교과 전담이라 학급 출결 담당이
   // 아님)까지 걸려버린다(실측 확인: 대체 탐색 1차가 "교과담임"을 집어버림) - 동아리담임과
   // 마찬가지로 교과담임/교과전담/전담은 1차 탐색에서 제외한다.
+
+  // (수정, 사용자 재현: "학급담임" 탭이 실제로 있는데도 못 찾음) tryEnterSystemFromExistingPortalHome
+  // 경로로 나이스에 들어오면(alreadyOnNeis) 포털 홈 재방문 없이 domcontentloaded 직후 곧바로
+  // 여기로 오는데, "4세대 나이스 시스템" 상단 역할 탭 바(.cl-navigationbar-item)는 SPA가 JS로
+  // 뒤늦게 그려서 그 시점엔 아직 하나도 없을 수 있다(closeAnyPopupsForAWhile의 짧아진 대기
+  // 시간이 우연히 이 렌더링 시간을 가려주고 있었을 뿐 - 팝업 대기 최적화 이후 노출된 경합).
+  // 탭이 하나라도 나타날 때까지 최대 5초 폴링한 뒤 탐색한다.
+  const roleBarDeadline = Date.now() + 5000;
+  while (Date.now() < roleBarDeadline) {
+    const hasItems = await page.evaluate(() => document.querySelectorAll('.cl-navigationbar-item').length > 0).catch(() => false);
+    if (hasItems) break;
+    await page.waitForTimeout(200);
+  }
+
   const handle = await page.evaluateHandle((label) => {
     const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
     const items = [...document.querySelectorAll('.cl-navigationbar-item')];
