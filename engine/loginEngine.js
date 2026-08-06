@@ -2162,6 +2162,16 @@ async function clickNeisRoleMegaMenuCategory(page, roleLabel, categoryLabel) {
   const linkEl = linkHandle && linkHandle.asElement ? linkHandle.asElement() : null;
   if (!linkEl) {
     console.log(`[PortalPet] 나이스 메가메뉴에서 "${categoryLabel}"을 못 찾음(호버 후에도 안 보임)`);
+    const allTexts = await page.evaluate(() => {
+      const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+      const visible = (e) => {
+        const r = e.getBoundingClientRect();
+        const s = getComputedStyle(e);
+        return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+      };
+      return [...document.querySelectorAll('.cl-navigationbar-listitem')].map((e) => `${norm(e.textContent)}|len=${norm(e.textContent).length}|visible=${visible(e)}`);
+    }).catch(() => []);
+    console.log('[PortalPet][diag] 메가메뉴 전체 항목:', JSON.stringify(allTexts));
     return false;
   }
   await linkEl.click({ timeout: 5000 }).catch((e) =>
