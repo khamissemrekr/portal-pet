@@ -94,12 +94,18 @@ const DASHBOARD_BADGE_CONFIG = {
   edufine_approval: { bucket: 'edufine', label: '결재(긴급)' },
   edmgr_approval: { bucket: 'edmgr', label: '내부승인(처리)' },
 };
+// (신규, 사용자 요청) 교외체험학습신청서관리 접수대기/미상신 건수 - checkPortalDashboard와는
+// 완전히 다른 별도 확인 경로(별도 주기)라 DASHBOARD_BADGE_CONFIG의 bucket/label 방식과는
+// 안 맞는다(결과가 { pendingCount } 형태의 숫자 하나뿐). title 툴팁에 쓸 라벨만 따로 둔다.
+const FIELD_TRIP_APPLY_BADGE_KEY = 'neis_field_trip_apply';
+const FIELD_TRIP_APPLY_BADGE_LABEL = '접수대기·미상신';
+const BADGE_ELIGIBLE_KEYS = new Set([...Object.keys(DASHBOARD_BADGE_CONFIG), FIELD_TRIP_APPLY_BADGE_KEY]);
 
 function makeButton(key, label, isHeader) {
   const btn = document.createElement('button');
   btn.className = isHeader ? 'service-btn header' : 'service-btn';
   btn.textContent = label;
-  if (DASHBOARD_BADGE_CONFIG[key]) {
+  if (BADGE_ELIGIBLE_KEYS.has(key)) {
     const badge = document.createElement('span');
     badge.className = 'dashboard-badge hidden';
     btn.appendChild(badge);
@@ -149,7 +155,7 @@ function updateDashboardBadges(data) {
 // (수정) 예전엔 0건이면 배지를 아예 숨겼는데, 사용자가 "지금 잘 불러와지고 있는지" 확인할 방법이
 // 없어서(0인지 아직 값을 못 받아온 건지 구분이 안 됨) 헷갈렸다 - 이제 데이터를 한 번이라도 받아온
 // 이후에는 0이어도 "0"으로 표시한다(아직 한 번도 못 받아왔을 때만 숨김). 0건일 땐 회색으로 옅게.
-function setDashboardBadge(key, rawValue) {
+function setDashboardBadge(key, rawValue, labelOverride) {
   const badge = dashboardBadgeEls[key];
   if (!badge) return;
   if (rawValue == null) {
@@ -158,10 +164,17 @@ function setDashboardBadge(key, rawValue) {
   }
   const leadingNum = parseInt(String(rawValue).match(/^[0-9]+/)?.[0] || '0', 10);
   badge.textContent = String(rawValue).length > 6 ? String(leadingNum) : String(rawValue); // 예: "0(0)"은 그대로, 너무 길면 숫자만
-  badge.title = `${DASHBOARD_BADGE_CONFIG[key]?.label || ''} ${rawValue}`;
+  badge.title = `${labelOverride ?? DASHBOARD_BADGE_CONFIG[key]?.label ?? ''} ${rawValue}`;
   badge.classList.toggle('zero', leadingNum <= 0);
   badge.classList.remove('hidden');
 }
+
+// ===== 교외체험학습신청서관리 접수대기/미상신 자동 확인 배지 (결재 현황과 별도 주기) =====
+function updateFieldTripApplyBadge(data) {
+  if (!data || !data.ok) return; // 실패하면 마지막으로 성공했던 값을 그대로 둔다.
+  setDashboardBadge(FIELD_TRIP_APPLY_BADGE_KEY, data.pendingCount, FIELD_TRIP_APPLY_BADGE_LABEL);
+}
+window.portalPet.onFieldTripApplyUpdated(updateFieldTripApplyBadge);
 
 window.portalPet.onPortalDashboardUpdated(updateDashboardBadges);
 

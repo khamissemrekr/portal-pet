@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('portalPet', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   // 나이스 미결/협조함, K-에듀파인 결재(긴급) 자동 확인 결과(주기적으로 main.js가 보냄).
   onPortalDashboardUpdated: (callback) => ipcRenderer.on('portal-dashboard-updated', (_evt, data) => callback(data)),
+  // 교외체험학습신청서관리 접수대기/미상신 건수 자동 확인 결과(결재 현황과 별도 주기).
+  onFieldTripApplyUpdated: (callback) => ipcRenderer.on('field-trip-apply-updated', (_evt, data) => callback(data)),
   // 새로고침 버튼 클릭 시 즉시 확인(정기 자동 확인과 별개).
   refreshPortalDashboard: () => ipcRenderer.invoke('refresh-portal-dashboard'),
   // 드래그로 펫 위치 이동: 매 mousemove마다 화면 좌표 델타(dx, dy)만 보낸다 - 창을 프레임

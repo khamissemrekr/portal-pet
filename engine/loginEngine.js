@@ -3072,9 +3072,26 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       console.log(`[PortalPet] unknown serviceKey "${serviceKey}" - staying on portal home`);
   }
 
-  await targetPage.bringToFront();
+  // (신규, 사용자 요청: 교외체험학습신청서관리 접수대기/미상신 건수 배지) 백그라운드 주기 확인
+  // 함수(checkFieldTripApplyPending 등)가 launchService의 검증된 탐색 경로(로그인/탭 재사용/
+  // SSO 재시도 전부 포함)를 그대로 재사용하면서, 도착한 화면에서 추가 작업(필터 적용 후 건수
+  // 읽기 등)을 하고 그 결과를 돌려받을 수 있도록 하는 훅. 일반 버튼 클릭(사용자 액션)에서는
+  // 쓰이지 않는다.
+  let afterNavigateResult = null;
+  if (typeof options.afterNavigate === 'function') {
+    afterNavigateResult = await options.afterNavigate(targetPage).catch((e) => {
+      console.log('[PortalPet] afterNavigate 훅 실패:', e.message);
+      return null;
+    });
+  }
+  // (신규) 위와 같은 백그라운드 확인은 사용자가 보고 있을 수 있는 다른 화면 위로 이 탭을
+  // 강제로 앞에 띄우면 안 된다(checkPortalDashboard와 동일한 원칙) - suppressBringToFront일
+  // 때만 생략.
+  if (!options.suppressBringToFront) {
+    await targetPage.bringToFront();
+  }
   console.log('[PortalPet] launchService done, loggedIn:', loggedIn);
-  return { ok: true, loggedIn };
+  return { ok: true, loggedIn, afterNavigateResult };
 }
 
 /**
@@ -3248,6 +3265,96 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
 }
 
 /**
+ * (신규, 사용자 요청) 교외체험학습신청서관리 화면에서 "접수상태"/"결재상태" 콤보박스를 원하는
+ * 값으로 바꾼 뒤 "조회"를 눌러, 결과 건수("Total N")를 읽어온다. 이 화면의 콤보박스는 실제
+ * DOM 마크업이 select 태그가 아니라 cl- 프레임워크의 커스텀 위젯이다(실측 확인, 2026-08-06):
+ *   <div role="combobox" aria-haspopup="listbox" aria-label="접수상태, 전체">...</div>
+ * 클릭하면 [role="listbox"] 팝업이 뜨고 그 안에 [role="option"]들이 생긴다. aria-label의
+ * 콤마 앞부분("접수상태", "결재상태")으로 정확히 어떤 콤보박스인지 구분한다(같은 화면에
+ * 학년도/학년/반 콤보박스도 있어 순서에 의존하면 위험).
+ */
+async function selectNeisComboboxOption(page, fieldLabel, optionText) {
+  const comboHandle = await page.evaluateHandle(
+    (label) => document.querySelector(`[role="combobox"][aria-label^="${label}"]`),
+    fieldLabel
+  ).catch(() => null);
+  const comboEl = comboHandle && comboHandle.asElement ? comboHandle.asElement() : null;
+  if (!comboEl) {
+    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}"을 못 찾음`);
+    return false;
+  }
+  await comboEl.click({ timeout: 3000 }).catch((e) =>
+    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}" 클릭 실패:`, e.message)
+  );
+  await page.waitForTimeout(300);
+  const optionHandle = await page.evaluateHandle(
+    (text) => [...document.querySelectorAll('[role="option"]')].find((o) => (o.textContent || '').trim() === text) || null,
+    optionText
+  ).catch(() => null);
+  const optionEl = optionHandle && optionHandle.asElement ? optionHandle.asElement() : null;
+  if (!optionEl) {
+    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}"에서 옵션 "${optionText}"을 못 찾음`);
+    await page.keyboard.press('Escape').catch(() => {});
+    return false;
+  }
+  await optionEl.click({ timeout: 3000 }).catch((e) =>
+    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}" 옵션 "${optionText}" 클릭 실패:`, e.message)
+  );
+  await page.waitForTimeout(200);
+  return true;
+}
+
+/**
+ * 교외체험학습신청서관리 화면에서 접수상태=접수대기, 결재상태=미상신으로 조회해 건수를 센다.
+ * launchService의 afterNavigate 훅으로 호출되므로, page는 이미 이 화면에 도착해 있는 상태다.
+ */
+async function readFieldTripApplyPendingCount(page) {
+  await selectNeisComboboxOption(page, '접수상태', '접수대기');
+  await selectNeisComboboxOption(page, '결재상태', '미상신');
+
+  const searchHandle = await page.evaluateHandle(
+    () => document.querySelector('[role="button"][aria-label="조회"]')
+  ).catch(() => null);
+  const searchEl = searchHandle && searchHandle.asElement ? searchHandle.asElement() : null;
+  if (!searchEl) {
+    console.log('[PortalPet] 나이스 "조회" 버튼을 못 찾음');
+    return null;
+  }
+  await searchEl.click({ timeout: 3000 }).catch((e) => console.log('[PortalPet] "조회" 클릭 실패:', e.message));
+  await page.waitForTimeout(800);
+
+  const totalText = await page.evaluate(() => {
+    const norm = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const el = [...document.querySelectorAll('*')].find((e) => /^Total\s*\d+$/i.test(norm(e.textContent)));
+    return el ? norm(el.textContent) : null;
+  }).catch(() => null);
+  if (!totalText) {
+    console.log('[PortalPet] 교외체험학습신청서관리 "Total N" 텍스트를 못 찾음');
+    return null;
+  }
+  const count = parseInt(totalText.match(/\d+/)[0], 10);
+  console.log(`[PortalPet] 교외체험학습신청서관리 접수대기/미상신 건수: ${count}`);
+  return count;
+}
+
+/**
+ * (신규, 사용자 요청) "나이스 결재/공문 결재 건수 자동 확인"과는 별도 주기로 도는 배지 확인 -
+ * 교외체험학습신청서관리에서 접수대기·미상신 상태인 건수를 세어 "체험신청서" 버튼에 배지로
+ * 표시한다. launchService('neis_field_trip_apply', ...)를 그대로 재사용해(로그인/탭 재사용/
+ * SSO 재시도 등 검증된 경로 전부 그대로 적용) suppressBringToFront로 화면을 사용자 앞에
+ * 강제로 띄우지 않고, afterNavigate 훅에서 필터 적용 + 건수 읽기까지 마친다.
+ */
+async function checkFieldTripApplyPending(subdomain, password, browserProfile = null, browserChannel = 'chrome', options = {}) {
+  console.log(`[PortalPet] checkFieldTripApplyPending(${subdomain}, ${browserChannel})`);
+  const result = await launchService('neis_field_trip_apply', subdomain, password, browserProfile, browserChannel, {
+    ...options,
+    suppressBringToFront: true,
+    afterNavigate: readFieldTripApplyPendingCount,
+  });
+  return { ok: result.ok, loggedIn: result.loggedIn, pendingCount: result.afterNavigateResult };
+}
+
+/**
  * (버그 수정) launchService/checkEdufineApprovalCount는 sharedContext/sharedPage/mainServiceTabs
  * 같은 모듈 전역 상태를 공유한다. 그런데 "프로그램 실행 시 자동 실행(메신저/일정)"이 main.js에서
  * 백그라운드로 진행되는 동안 사용자가 다른 메뉴 버튼을 누르면, 두 launchService 호출이 동시에
@@ -3267,4 +3374,5 @@ function runQueued(fn) {
 module.exports = {
   launchService: (...args) => runQueued(() => launchService(...args)),
   checkPortalDashboard: (...args) => runQueued(() => checkPortalDashboard(...args)),
+  checkFieldTripApplyPending: (...args) => runQueued(() => checkFieldTripApplyPending(...args)),
 };
