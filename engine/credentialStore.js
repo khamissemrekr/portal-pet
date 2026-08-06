@@ -23,6 +23,8 @@ function loadConfig() {
       dashboardRefreshMinutes: 5, // 확인 주기(분)
       fieldTripApplyAutoRefresh: false, // 교외체험학습신청서관리 접수대기/미상신 건수 자동 확인 - 기본 꺼짐(별도 주기)
       fieldTripApplyRefreshMinutes: 15, // 확인 주기(분) - 결재 현황보다 덜 급해 기본값을 길게
+      fieldTripReportAutoRefresh: false, // 교외체험학습보고서관리 접수대기/미상신 건수 자동 확인 - 기본 꺼짐(별도 주기)
+      fieldTripReportRefreshMinutes: 15, // 확인 주기(분)
       panelAutoCloseEnabled: false, // 메뉴(펼침 패널)를 일정 시간 뒤 자동으로 접을지 여부 - 기본 꺼짐
       panelAutoCloseSeconds: 10, // 자동으로 접히기까지 걸리는 시간(초)
       neisRoleMode: '학급담임', // 나이스 출결관리 등에서 쓸 역할 - '학급담임' | '부서장' | 'custom'
@@ -36,6 +38,7 @@ function loadConfig() {
     autoLaunchMessenger: false, autoLaunchSchedule: false, minimizeMessengerOnLaunch: true, customLinks: [], autoLogin: true,
     browserChannel: 'chrome', panelOpacity: 0.92, dashboardAutoRefresh: true, dashboardRefreshMinutes: 5,
     fieldTripApplyAutoRefresh: false, fieldTripApplyRefreshMinutes: 15,
+    fieldTripReportAutoRefresh: false, fieldTripReportRefreshMinutes: 15,
     panelAutoCloseEnabled: false, panelAutoCloseSeconds: 10,
     neisRoleMode: '학급담임', neisRoleCustomText: '', certUserName: '',
     hiddenMenuItems: [],

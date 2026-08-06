@@ -476,6 +476,7 @@ ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
   fieldTripApplyAutoRefresh, fieldTripApplyRefreshMinutes,
+  fieldTripReportAutoRefresh, fieldTripReportRefreshMinutes,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
   neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems,
 }) => {
@@ -506,6 +507,12 @@ ipcMain.handle('save-setup', (_evt, {
     ? Math.max(1, Math.min(120, Math.round(parsedFieldTripMinutes)))
     : (previous.fieldTripApplyRefreshMinutes ?? 15);
 
+  // 교외체험학습보고서관리 확인 주기(분) - 신청서관리와 동일한 이유.
+  const parsedFieldTripReportMinutes = Number(fieldTripReportRefreshMinutes);
+  const safeFieldTripReportMinutes = Number.isFinite(parsedFieldTripReportMinutes)
+    ? Math.max(1, Math.min(120, Math.round(parsedFieldTripReportMinutes)))
+    : (previous.fieldTripReportRefreshMinutes ?? 15);
+
   // 메뉴 자동 닫힘 시간(초) - 너무 짧으면(예: 0, 음수) 펼치자마자 닫혀버리니 최소 1초로 막는다.
   const parsedAutoCloseSeconds = Number(panelAutoCloseSeconds);
   const safeAutoCloseSeconds = Number.isFinite(parsedAutoCloseSeconds)
@@ -534,6 +541,8 @@ ipcMain.handle('save-setup', (_evt, {
     dashboardRefreshMinutes: safeMinutes, // 기본값 5분
     fieldTripApplyAutoRefresh: !!fieldTripApplyAutoRefresh, // 기본값 false - 교외체험학습신청서관리 접수대기/미상신 자동 확인(별도 주기)
     fieldTripApplyRefreshMinutes: safeFieldTripMinutes, // 기본값 15분
+    fieldTripReportAutoRefresh: !!fieldTripReportAutoRefresh, // 기본값 false - 교외체험학습보고서관리 접수대기/미상신 자동 확인(별도 주기)
+    fieldTripReportRefreshMinutes: safeFieldTripReportMinutes, // 기본값 15분
     panelAutoCloseEnabled: !!panelAutoCloseEnabled, // 기본값 false - 메뉴를 일정 시간 뒤 자동으로 접을지
     panelAutoCloseSeconds: safeAutoCloseSeconds, // 자동으로 접히기까지 걸리는 시간(초)
     neisRoleMode: safeNeisRoleMode, // '학급담임' | '부서장' | 'custom'
@@ -547,6 +556,7 @@ ipcMain.handle('save-setup', (_evt, {
   if (win && !win.isDestroyed()) win.webContents.send('config-updated');
   scheduleDashboardRefresh(); // 주기/on-off가 바뀌었을 수 있으니 즉시 재적용
   scheduleFieldTripApplyRefresh();
+  scheduleFieldTripReportRefresh();
   return { ok: true };
 });
 
@@ -803,6 +813,71 @@ async function runFieldTripApplyRefresh() {
   }
 }
 
+// ===== 교외체험학습보고서관리 접수대기/미상신 건수 자동 확인(배지) =====
+// 신청서관리와 동일한 패턴 - 별도 주기로 켜고 끌 수 있다. 다만 이 화면은 상태 필드 이름이
+// "접수상태"가 아니라 "처리상태"라 loginEngine.checkFieldTripReportPending에서 그 차이를
+// 흡수한다(실측 확인, 2026-08-06).
+let fieldTripReportTimer = null;
+let lastFieldTripReportPendingCount = null;
+
+function scheduleFieldTripReportRefresh() {
+  if (fieldTripReportTimer) { clearInterval(fieldTripReportTimer); fieldTripReportTimer = null; }
+
+  const config = credentialStore.loadConfig();
+  if (config.fieldTripReportAutoRefresh !== true) {
+    console.log('[PortalPet] 교외체험학습보고서관리 자동 확인 꺼짐 - 스케줄 안 함');
+    return;
+  }
+  if (!(config.subdomain || config.region)) return;
+  if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
+
+  const minutes = Math.max(1, Number(config.fieldTripReportRefreshMinutes) || 15);
+  console.log(`[PortalPet] 교외체험학습보고서관리 자동 확인 스케줄 설정: ${minutes}분마다`);
+  fieldTripReportTimer = setInterval(runFieldTripReportRefresh, minutes * 60 * 1000);
+  runFieldTripReportRefresh();
+}
+
+function notifyFieldTripReportIncrease(count) {
+  if (count == null) return;
+  if (lastFieldTripReportPendingCount == null) {
+    lastFieldTripReportPendingCount = count;
+    return;
+  }
+  if (count > lastFieldTripReportPendingCount) {
+    console.log(`[PortalPet] 교외체험학습보고서관리 접수대기/미상신 증가 감지: ${lastFieldTripReportPendingCount} -> ${count}`);
+    if (Notification.isSupported()) {
+      new Notification({
+        title: '교외체험학습 보고서 - 확인할 건이 있습니다',
+        body: `접수대기 · 미상신: ${count}건`,
+      }).show();
+    }
+  }
+  lastFieldTripReportPendingCount = count;
+}
+
+async function runFieldTripReportRefresh() {
+  const config = credentialStore.loadConfig();
+  if (!(config.subdomain || config.region)) return;
+  if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
+
+  const subdomain = REGIONS[config.region] || config.subdomain;
+  const password = credentialStore.decryptPassword(config.encryptedPasswordBase64);
+
+  try {
+    console.log('[PortalPet] 교외체험학습보고서관리 자동 확인 실행...');
+    const result = await loginEngine.checkFieldTripReportPending(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
+      neisRoleLabel: resolveNeisRoleLabel(config),
+      certUserName: config.certUserName || '',
+    });
+    if (result?.ok) {
+      notifyFieldTripReportIncrease(result.pendingCount);
+      if (win && !win.isDestroyed()) win.webContents.send('field-trip-report-updated', result);
+    }
+  } catch (err) {
+    console.error('[PortalPet] 교외체험학습보고서관리 자동 확인 실패:', err);
+  }
+}
+
 // 패널의 새로고침 버튼 클릭 시 - 정기 자동 확인과 별개로 사용자가 원하는 시점에 즉시 확인.
 // autoLogin이 꺼져 있어도(수동 입력 모드) 여기서는 사용자가 지금 화면 앞에 있다고 볼 수 있어
 // 자동 확인 스케줄러와 달리 막지 않는다 - 필요하면 completeCertLoginIfNeeded가 알아서 인증서
@@ -850,6 +925,7 @@ app.whenReady().then(async () => {
   }
   scheduleDashboardRefresh();
   scheduleFieldTripApplyRefresh();
+  scheduleFieldTripReportRefresh();
 });
 
 app.on('window-all-closed', () => {
@@ -860,4 +936,5 @@ app.on('will-quit', () => {
   stopDialogSuppressor();
   if (dashboardTimer) clearInterval(dashboardTimer);
   if (fieldTripApplyTimer) clearInterval(fieldTripApplyTimer);
+  if (fieldTripReportTimer) clearInterval(fieldTripReportTimer);
 });

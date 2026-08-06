@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('portalPet', {
   onPortalDashboardUpdated: (callback) => ipcRenderer.on('portal-dashboard-updated', (_evt, data) => callback(data)),
   // 교외체험학습신청서관리 접수대기/미상신 건수 자동 확인 결과(결재 현황과 별도 주기).
   onFieldTripApplyUpdated: (callback) => ipcRenderer.on('field-trip-apply-updated', (_evt, data) => callback(data)),
+  // 교외체험학습보고서관리 접수대기/미상신 건수 자동 확인 결과(별도 주기).
+  onFieldTripReportUpdated: (callback) => ipcRenderer.on('field-trip-report-updated', (_evt, data) => callback(data)),
   // 새로고침 버튼 클릭 시 즉시 확인(정기 자동 확인과 별개).
   refreshPortalDashboard: () => ipcRenderer.invoke('refresh-portal-dashboard'),
   // 드래그로 펫 위치 이동: 매 mousemove마다 화면 좌표 델타(dx, dy)만 보낸다 - 창을 프레임

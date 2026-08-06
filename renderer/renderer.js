@@ -99,7 +99,11 @@ const DASHBOARD_BADGE_CONFIG = {
 // 안 맞는다(결과가 { pendingCount } 형태의 숫자 하나뿐). title 툴팁에 쓸 라벨만 따로 둔다.
 const FIELD_TRIP_APPLY_BADGE_KEY = 'neis_field_trip_apply';
 const FIELD_TRIP_APPLY_BADGE_LABEL = '접수대기·미상신';
-const BADGE_ELIGIBLE_KEYS = new Set([...Object.keys(DASHBOARD_BADGE_CONFIG), FIELD_TRIP_APPLY_BADGE_KEY]);
+const FIELD_TRIP_REPORT_BADGE_KEY = 'neis_field_trip_report';
+const FIELD_TRIP_REPORT_BADGE_LABEL = '접수대기·미상신';
+const BADGE_ELIGIBLE_KEYS = new Set([
+  ...Object.keys(DASHBOARD_BADGE_CONFIG), FIELD_TRIP_APPLY_BADGE_KEY, FIELD_TRIP_REPORT_BADGE_KEY,
+]);
 
 function makeButton(key, label, isHeader) {
   const btn = document.createElement('button');
@@ -169,12 +173,18 @@ function setDashboardBadge(key, rawValue, labelOverride) {
   badge.classList.remove('hidden');
 }
 
-// ===== 교외체험학습신청서관리 접수대기/미상신 자동 확인 배지 (결재 현황과 별도 주기) =====
+// ===== 교외체험학습신청서관리/보고서관리 접수대기/미상신 자동 확인 배지 (결재 현황과 별도 주기) =====
 function updateFieldTripApplyBadge(data) {
   if (!data || !data.ok) return; // 실패하면 마지막으로 성공했던 값을 그대로 둔다.
   setDashboardBadge(FIELD_TRIP_APPLY_BADGE_KEY, data.pendingCount, FIELD_TRIP_APPLY_BADGE_LABEL);
 }
 window.portalPet.onFieldTripApplyUpdated(updateFieldTripApplyBadge);
+
+function updateFieldTripReportBadge(data) {
+  if (!data || !data.ok) return;
+  setDashboardBadge(FIELD_TRIP_REPORT_BADGE_KEY, data.pendingCount, FIELD_TRIP_REPORT_BADGE_LABEL);
+}
+window.portalPet.onFieldTripReportUpdated(updateFieldTripReportBadge);
 
 window.portalPet.onPortalDashboardUpdated(updateDashboardBadges);
 

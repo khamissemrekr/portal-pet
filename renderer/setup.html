@@ -174,6 +174,18 @@
     이동해서 확인하는 작업이라 위 결재 현황 확인보다 무거워 별도 주기로 켜고 끕니다(기본 꺼짐).
   </div>
 
+  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+    <input id="fieldTripReportAutoRefresh" type="checkbox" style="width:auto; margin-top:0;" />
+    <span>교외체험학습보고서 접수대기/미상신 건수 자동 확인</span>
+  </label>
+  <label id="fieldTripReportMinutesWrap">확인 주기 (분)
+    <input id="fieldTripReportRefreshMinutes" type="number" min="1" max="120" step="1" value="15" />
+  </label>
+  <div class="note">
+    "체험보고서" 버튼에 접수대기·미상신 상태인 건수가 배지로 표시됩니다. 위 신청서 확인과 마찬가지로
+    별도 주기로 켜고 끕니다(기본 꺼짐).
+  </div>
+
   <label style="margin-top:16px;">자주 가는 사이트</label>
   <div id="customLinksList"></div>
   <div style="display:flex; gap:6px; margin-top:6px;">
@@ -221,6 +233,9 @@
     const fieldTripApplyAutoRefreshInput = document.getElementById('fieldTripApplyAutoRefresh');
     const fieldTripApplyMinutesInput = document.getElementById('fieldTripApplyRefreshMinutes');
     const fieldTripApplyMinutesWrap = document.getElementById('fieldTripApplyMinutesWrap');
+    const fieldTripReportAutoRefreshInput = document.getElementById('fieldTripReportAutoRefresh');
+    const fieldTripReportMinutesInput = document.getElementById('fieldTripReportRefreshMinutes');
+    const fieldTripReportMinutesWrap = document.getElementById('fieldTripReportMinutesWrap');
     const panelAutoCloseEnabledInput = document.getElementById('panelAutoCloseEnabled');
     const panelAutoCloseSecondsInput = document.getElementById('panelAutoCloseSeconds');
     const panelAutoCloseSecondsWrap = document.getElementById('panelAutoCloseSecondsWrap');
@@ -321,6 +336,13 @@
       fieldTripApplyMinutesWrap.style.opacity = on ? '1' : '0.5';
     }
     fieldTripApplyAutoRefreshInput.addEventListener('change', syncFieldTripApplyMinutesEnabled);
+
+    function syncFieldTripReportMinutesEnabled() {
+      const on = fieldTripReportAutoRefreshInput.checked;
+      fieldTripReportMinutesInput.disabled = !on;
+      fieldTripReportMinutesWrap.style.opacity = on ? '1' : '0.5';
+    }
+    fieldTripReportAutoRefreshInput.addEventListener('change', syncFieldTripReportMinutesEnabled);
 
     // 브라우저(크롬/엣지)를 바꾸면 그 브라우저에 설치된 프로필 목록으로 다시 불러온다.
     // selectedValue를 넘기면(초기 로드 시 저장된 값 복원용) 목록에 있을 때 그 값으로 맞춰준다 -
@@ -426,6 +448,9 @@
       fieldTripApplyAutoRefreshInput.checked = !!config?.fieldTripApplyAutoRefresh;
       fieldTripApplyMinutesInput.value = String(config?.fieldTripApplyRefreshMinutes ?? 15);
       syncFieldTripApplyMinutesEnabled();
+      fieldTripReportAutoRefreshInput.checked = !!config?.fieldTripReportAutoRefresh;
+      fieldTripReportMinutesInput.value = String(config?.fieldTripReportRefreshMinutes ?? 15);
+      syncFieldTripReportMinutesEnabled();
       panelAutoCloseEnabledInput.checked = !!config?.panelAutoCloseEnabled;
       panelAutoCloseSecondsInput.value = String(config?.panelAutoCloseSeconds ?? 10);
       syncPanelAutoCloseSecondsEnabled();
@@ -478,6 +503,8 @@
       const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
       const fieldTripApplyAutoRefresh = fieldTripApplyAutoRefreshInput.checked;
       const fieldTripApplyRefreshMinutes = Number(fieldTripApplyMinutesInput.value) || 15;
+      const fieldTripReportAutoRefresh = fieldTripReportAutoRefreshInput.checked;
+      const fieldTripReportRefreshMinutes = Number(fieldTripReportMinutesInput.value) || 15;
       const panelAutoCloseEnabled = panelAutoCloseEnabledInput.checked;
       const panelAutoCloseSeconds = Number(panelAutoCloseSecondsInput.value) || 10;
       const selectedNeisRole = neisRoleModeInputs.find((r) => r.checked);
@@ -496,6 +523,7 @@
         autoLaunchMessenger, autoLaunchSchedule, minimizeMessengerOnLaunch,
         customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
         fieldTripApplyAutoRefresh, fieldTripApplyRefreshMinutes,
+        fieldTripReportAutoRefresh, fieldTripReportRefreshMinutes,
         panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
         hiddenMenuItems,
       });

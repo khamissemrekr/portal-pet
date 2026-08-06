@@ -3305,12 +3305,15 @@ async function selectNeisComboboxOption(page, fieldLabel, optionText) {
 }
 
 /**
- * 교외체험학습신청서관리 화면에서 접수상태=접수대기, 결재상태=미상신으로 조회해 건수를 센다.
- * launchService의 afterNavigate 훅으로 호출되므로, page는 이미 이 화면에 도착해 있는 상태다.
+ * 교외체험학습신청서관리/보고서관리 공통 - "접수상태"/"결재상태" 콤보박스를 지정한 값으로
+ * 바꾼 뒤 "조회"를 눌러 결과 건수("Total N")를 읽어온다. filters는 [필드라벨, 옵션텍스트]
+ * 쌍의 배열(순서대로 적용). launchService의 afterNavigate 훅으로 호출되므로, page는 이미
+ * 해당 화면에 도착해 있는 상태다.
  */
-async function readFieldTripApplyPendingCount(page) {
-  await selectNeisComboboxOption(page, '접수상태', '접수대기');
-  await selectNeisComboboxOption(page, '결재상태', '미상신');
+async function readNeisFilteredTotalCount(page, filters, screenLabel) {
+  for (const [fieldLabel, optionText] of filters) {
+    await selectNeisComboboxOption(page, fieldLabel, optionText);
+  }
 
   const searchHandle = await page.evaluateHandle(
     () => document.querySelector('[role="button"][aria-label="조회"]')
@@ -3329,20 +3332,34 @@ async function readFieldTripApplyPendingCount(page) {
     return el ? norm(el.textContent) : null;
   }).catch(() => null);
   if (!totalText) {
-    console.log('[PortalPet] 교외체험학습신청서관리 "Total N" 텍스트를 못 찾음');
+    console.log(`[PortalPet] ${screenLabel} "Total N" 텍스트를 못 찾음`);
     return null;
   }
   const count = parseInt(totalText.match(/\d+/)[0], 10);
-  console.log(`[PortalPet] 교외체험학습신청서관리 접수대기/미상신 건수: ${count}`);
+  console.log(`[PortalPet] ${screenLabel} 건수: ${count}`);
   return count;
+}
+
+async function readFieldTripApplyPendingCount(page) {
+  return readNeisFilteredTotalCount(
+    page, [['접수상태', '접수대기'], ['결재상태', '미상신']], '교외체험학습신청서관리 접수대기/미상신'
+  );
+}
+
+async function readFieldTripReportPendingCount(page) {
+  // (실측 확인, 2026-08-06) 보고서관리 화면은 신청서관리와 달리 상태 필드 이름이
+  // "접수상태"가 아니라 "처리상태"다(옵션 목록은 전체/접수대기/접수/접수취소로 동일).
+  return readNeisFilteredTotalCount(
+    page, [['처리상태', '접수대기'], ['결재상태', '미상신']], '교외체험학습보고서관리 접수대기/미상신'
+  );
 }
 
 /**
  * (신규, 사용자 요청) "나이스 결재/공문 결재 건수 자동 확인"과는 별도 주기로 도는 배지 확인 -
- * 교외체험학습신청서관리에서 접수대기·미상신 상태인 건수를 세어 "체험신청서" 버튼에 배지로
- * 표시한다. launchService('neis_field_trip_apply', ...)를 그대로 재사용해(로그인/탭 재사용/
- * SSO 재시도 등 검증된 경로 전부 그대로 적용) suppressBringToFront로 화면을 사용자 앞에
- * 강제로 띄우지 않고, afterNavigate 훅에서 필터 적용 + 건수 읽기까지 마친다.
+ * 교외체험학습신청서관리/보고서관리에서 접수대기·미상신 상태인 건수를 세어 각각 "체험신청서"/
+ * "체험보고서" 버튼에 배지로 표시한다. launchService를 그대로 재사용해(로그인/탭 재사용/SSO
+ * 재시도 등 검증된 경로 전부 그대로 적용) suppressBringToFront로 화면을 사용자 앞에 강제로
+ * 띄우지 않고, afterNavigate 훅에서 필터 적용 + 건수 읽기까지 마친다.
  */
 async function checkFieldTripApplyPending(subdomain, password, browserProfile = null, browserChannel = 'chrome', options = {}) {
   console.log(`[PortalPet] checkFieldTripApplyPending(${subdomain}, ${browserChannel})`);
@@ -3350,6 +3367,16 @@ async function checkFieldTripApplyPending(subdomain, password, browserProfile = 
     ...options,
     suppressBringToFront: true,
     afterNavigate: readFieldTripApplyPendingCount,
+  });
+  return { ok: result.ok, loggedIn: result.loggedIn, pendingCount: result.afterNavigateResult };
+}
+
+async function checkFieldTripReportPending(subdomain, password, browserProfile = null, browserChannel = 'chrome', options = {}) {
+  console.log(`[PortalPet] checkFieldTripReportPending(${subdomain}, ${browserChannel})`);
+  const result = await launchService('neis_field_trip_report', subdomain, password, browserProfile, browserChannel, {
+    ...options,
+    suppressBringToFront: true,
+    afterNavigate: readFieldTripReportPendingCount,
   });
   return { ok: result.ok, loggedIn: result.loggedIn, pendingCount: result.afterNavigateResult };
 }
@@ -3375,4 +3402,5 @@ module.exports = {
   launchService: (...args) => runQueued(() => launchService(...args)),
   checkPortalDashboard: (...args) => runQueued(() => checkPortalDashboard(...args)),
   checkFieldTripApplyPending: (...args) => runQueued(() => checkFieldTripApplyPending(...args)),
+  checkFieldTripReportPending: (...args) => runQueued(() => checkFieldTripReportPending(...args)),
 };
