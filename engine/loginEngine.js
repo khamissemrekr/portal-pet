@@ -2288,6 +2288,21 @@ async function openNeisRoleMenu(page, subdomain, password, alreadyOnNeis = false
   if (alreadyOnNeis && (await isNeisRequestPopupVisible(target))) {
     await closeNeisRequestPopup(target);
   }
+
+  // (신규, 사용자 재현: "나이스 신청서 페이지 여는데 실패" - 메가메뉴/역할 탭/aside 토글까지
+  // 전부 하나도 안 보임, 진단 로그에서 메가메뉴 항목 0개 확인) G-ONE의 SSO 진입 실패(HTTP 500)
+  // 와 비슷하게, 오래 열려 있던 포털 홈 탭의 "나이스" SSO 링크가 만료됐거나 나이스 서버가
+  // 일시적으로 응답하지 못해 상단 역할 탭 바(.cl-navigationbar-item) 자체가 하나도 안 뜨는
+  // 경우가 있다 - 이 경우 switchNeisRole이 아무리 기다려도(5초 폴링) 소용없으므로, 먼저 역할
+  // 탭 바가 있는지 확인하고 없으면 target을 포털 홈으로 되돌려 SSO 링크를 새로 읽어 재진입한다.
+  const hasNeisNavBar = () => target.evaluate(() => document.querySelectorAll('.cl-navigationbar-item').length > 0).catch(() => false);
+  if (!(await hasNeisNavBar())) {
+    console.log('[PortalPet] 나이스 상단 역할 탭 바가 안 보임(SSO 진입 실패 추정) - 포털 홈에서 SSO 링크를 다시 읽어 재진입 시도:', target.url());
+    await ensureOnPortalHome(target, subdomain);
+    target = await goToPortalMenu(target, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
+    await target.waitForTimeout(1500);
+    await closeAnyPopupsForAWhile(target);
+  }
   await switchNeisRole(target, roleLabel);
   // 역할 전환 직후에도 공지 팝업이 새로 뜰 수 있어(다른 메뉴 진입 때와 동일한 레이스) 한 번 더 지켜본다.
   await closeAnyPopupsForAWhile(target);
