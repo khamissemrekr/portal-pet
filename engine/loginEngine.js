@@ -2655,6 +2655,23 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
       target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
     }
     await target.waitForTimeout(900);
+
+    // (신규, 사용자 재현: 메신저/일정 자동 실행 시 G-ONE 진입이 매번 실패하고 스크린샷에서
+    // "idp1-goe.neis.go.kr...createAgentSession.jsp"가 HTTP 500을 내려주는 것을 확인) 나이스
+    // SSO 인증 서버가 로그인 직후 첫 G-ONE 진입 요청에 간헐적으로 500 에러를 내려주는 것으로
+    // 보인다 - "메신저"/"일정" 텍스트를 못 찾는 게 아니라 애초에 G-ONE에 도착도 못 한 것이므로,
+    // 텍스트를 찾기 전에 먼저 실제로 G-ONE에 도착했는지 확인하고, 아니면 잠깐 쉬었다가 SSO
+    // 링크를 다시 읽어 한 번 더 시도한다.
+    if (!(await isOnSystem(target, 'gone', subdomain))) {
+      console.log('[PortalPet] G-ONE 진입 실패로 보임(SSO 오류 페이지 추정) - 잠시 후 한 번 더 시도:', target.url());
+      await target.waitForTimeout(2000);
+      const retryGoneUrl = await readPortalMenuUrl(page, 'G-ONE');
+      if (retryGoneUrl) {
+        await gotoWithRetry(target, retryGoneUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] G-ONE 재시도 goto 실패:', e.message));
+        await closeAnyPopupsForAWhile(target);
+        await target.waitForTimeout(900);
+      }
+    }
   }
   // G-ONE 기본 진입 화면(AI 대화·초안 탭)에 공지 팝업이 뜨는 경우가 있다(실측 확인:
   // "오늘 하루 보지 않기" + "확인"). 하위 메뉴를 클릭하기 전에 먼저 치워야 클릭이 안 막힌다.
