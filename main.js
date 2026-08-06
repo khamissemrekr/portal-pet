@@ -804,9 +804,15 @@ async function runFieldTripApplyRefresh() {
       neisRoleLabel: resolveNeisRoleLabel(config),
       certUserName: config.certUserName || '',
     });
-    if (result?.ok) {
+    // (버그 수정, 사용자 재현: "3건인데 배지에는 17건(전체)로 나옴") pendingCount가 null이면
+    // 나이스 쪽 필터 적용이 실패해 값을 신뢰할 수 없다는 뜻(loginEngine 쪽에서 이미 걸러줌) -
+    // 이번 확인은 그냥 건너뛰고 배지는 마지막으로 성공했던 값을 그대로 유지한다(잘못된 값으로
+    // 덮어쓰지 않음).
+    if (result?.ok && result.pendingCount != null) {
       notifyFieldTripApplyIncrease(result.pendingCount);
       if (win && !win.isDestroyed()) win.webContents.send('field-trip-apply-updated', result);
+    } else if (result?.ok) {
+      console.log('[PortalPet] 교외체험학습신청서관리 - 이번 확인 값을 신뢰할 수 없어 배지는 그대로 둠');
     }
   } catch (err) {
     console.error('[PortalPet] 교외체험학습신청서관리 자동 확인 실패:', err);
@@ -869,9 +875,11 @@ async function runFieldTripReportRefresh() {
       neisRoleLabel: resolveNeisRoleLabel(config),
       certUserName: config.certUserName || '',
     });
-    if (result?.ok) {
+    if (result?.ok && result.pendingCount != null) {
       notifyFieldTripReportIncrease(result.pendingCount);
       if (win && !win.isDestroyed()) win.webContents.send('field-trip-report-updated', result);
+    } else if (result?.ok) {
+      console.log('[PortalPet] 교외체험학습보고서관리 - 이번 확인 값을 신뢰할 수 없어 배지는 그대로 둠');
     }
   } catch (err) {
     console.error('[PortalPet] 교외체험학습보고서관리 자동 확인 실패:', err);

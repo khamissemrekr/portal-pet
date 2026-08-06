@@ -3273,7 +3273,30 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
  * 콤마 앞부분("접수상태", "결재상태")으로 정확히 어떤 콤보박스인지 구분한다(같은 화면에
  * 학년도/학년/반 콤보박스도 있어 순서에 의존하면 위험).
  */
-async function selectNeisComboboxOption(page, fieldLabel, optionText) {
+// (수정, 사용자 재현: "체험보고서 배지가 3건이 아니라 17건(전체)로 나옴") 오래 재사용된 탭에서
+// 신청서/보고서를 번갈아 자동 확인하다 보면(사용자 실측 로그 - 매번 "결재상태" 클릭이 3초
+// 타임아웃으로 실패하거나 "처리상태"를 아예 못 찾음), 화면 전환 직후 필터 폼이 아직 다 렌더링/
+// 안정화되지 않은 상태에서 곧바로 클릭을 시도해 실패하는 것으로 보인다(신선한 브라우저로 한
+// 번만 확인하는 하니스 테스트에서는 재현되지 않았음 - 여러 번 재사용된 탭 특유의 렌더링 지연).
+// 클릭 전에 콤보박스가 실제로 보이고 안정될 때까지 폴링하고, 그래도 실패하면 한 번 더 재시도한다.
+// 필터가 하나라도 조용히 씹히면 배지가 "필터링된 건수"가 아니라 "전체 건수"로 잘못 표시되는
+// 조용한 오류라 특히 신경 써서 안정화했다.
+async function isNeisComboboxVisible(page, fieldLabel) {
+  return page.evaluate((label) => {
+    const el = document.querySelector(`[role="combobox"][aria-label^="${label}"]`);
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  }, fieldLabel).catch(() => false);
+}
+
+async function selectNeisComboboxOptionOnce(page, fieldLabel, optionText) {
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline && !(await isNeisComboboxVisible(page, fieldLabel))) {
+    await page.waitForTimeout(200);
+  }
+
   const comboHandle = await page.evaluateHandle(
     (label) => document.querySelector(`[role="combobox"][aria-label^="${label}"]`),
     fieldLabel
@@ -3283,9 +3306,12 @@ async function selectNeisComboboxOption(page, fieldLabel, optionText) {
     console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}"을 못 찾음`);
     return false;
   }
-  await comboEl.click({ timeout: 3000 }).catch((e) =>
-    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}" 클릭 실패:`, e.message)
-  );
+  let clicked = true;
+  await comboEl.click({ timeout: 3000 }).catch((e) => {
+    clicked = false;
+    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}" 클릭 실패:`, e.message);
+  });
+  if (!clicked) return false;
   await page.waitForTimeout(300);
   const optionHandle = await page.evaluateHandle(
     (text) => [...document.querySelectorAll('[role="option"]')].find((o) => (o.textContent || '').trim() === text) || null,
@@ -3297,11 +3323,24 @@ async function selectNeisComboboxOption(page, fieldLabel, optionText) {
     await page.keyboard.press('Escape').catch(() => {});
     return false;
   }
-  await optionEl.click({ timeout: 3000 }).catch((e) =>
-    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}" 옵션 "${optionText}" 클릭 실패:`, e.message)
-  );
+  let optionClicked = true;
+  await optionEl.click({ timeout: 3000 }).catch((e) => {
+    optionClicked = false;
+    console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}" 옵션 "${optionText}" 클릭 실패:`, e.message);
+  });
+  if (!optionClicked) return false;
   await page.waitForTimeout(200);
   return true;
+}
+
+async function selectNeisComboboxOption(page, fieldLabel, optionText) {
+  const ok = await selectNeisComboboxOptionOnce(page, fieldLabel, optionText);
+  if (ok) return true;
+  console.log(`[PortalPet] 나이스 콤보박스 "${fieldLabel}" 적용 실패 - 한 번 더 시도`);
+  await page.keyboard.press('Escape').catch(() => {});
+  await closeAnyPopups(page).catch(() => {});
+  await page.waitForTimeout(500);
+  return selectNeisComboboxOptionOnce(page, fieldLabel, optionText);
 }
 
 /**
@@ -3312,7 +3351,15 @@ async function selectNeisComboboxOption(page, fieldLabel, optionText) {
  */
 async function readNeisFilteredTotalCount(page, filters, screenLabel) {
   for (const [fieldLabel, optionText] of filters) {
-    await selectNeisComboboxOption(page, fieldLabel, optionText);
+    const applied = await selectNeisComboboxOption(page, fieldLabel, optionText);
+    if (!applied) {
+      // (버그 수정, 사용자 재현: 필터가 안 먹었는데도 "전체" 건수를 그대로 배지에 표시해버림)
+      // 필터를 하나라도 못 걸면 그 뒤 "조회" 결과는 의도한 필터링된 건수가 아니라 훨씬 큰
+      // 값(예: 전체 건수)일 수 있다 - 조용히 틀린 숫자를 보여주느니, 이번 확인은 건너뛰고
+      // null을 돌려줘 배지가 마지막으로 성공했던 값을 그대로 유지하게 한다.
+      console.log(`[PortalPet] ${screenLabel} - 필터 "${fieldLabel}"를 못 걸어 이번 확인은 건너뜀(잘못된 값 표시 방지)`);
+      return null;
+    }
   }
 
   const searchHandle = await page.evaluateHandle(
