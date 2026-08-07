@@ -3050,11 +3050,18 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       targetPage = await openNeisRoleMenu(page, subdomain, password, alreadyInTargetSystem, {
         roleLabel: options.neisRoleLabel || '학급담임', categoryLabel: '교외체험학습관리', leafLabel: '교외체험학습신청서관리',
       });
+      // (신규, 사용자 요청: "화면까지는 가는데 조회 상태까지는 가지 않아") 배지 자동 확인과
+      // 똑같이 접수상태=접수대기/결재상태=미상신으로 미리 걸러서 조회까지 해둔다 - 버튼을
+      // 눌렀을 때 바로 확인해야 할 목록이 보이는 게 그냥 빈 검색 화면보다 훨씬 유용하다.
+      await readFieldTripApplyPendingCount(targetPage).catch((e) =>
+        console.log('[PortalPet] 교외체험학습신청서관리 자동 필터/조회 실패(non-fatal):', e.message));
       break;
     case 'neis_field_trip_report':
       targetPage = await openNeisRoleMenu(page, subdomain, password, alreadyInTargetSystem, {
         roleLabel: options.neisRoleLabel || '학급담임', categoryLabel: '교외체험학습관리', leafLabel: '교외체험학습보고서관리',
       });
+      await readFieldTripReportPendingCount(targetPage).catch((e) =>
+        console.log('[PortalPet] 교외체험학습보고서관리 자동 필터/조회 실패(non-fatal):', e.message));
       break;
     case 'gone_msg':
       targetPage = await openGoneSubMenu(context, page, subdomain, ['메신저'], password, alreadyInTargetSystem);
