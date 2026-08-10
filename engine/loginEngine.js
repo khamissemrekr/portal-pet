@@ -2889,6 +2889,13 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     serviceKey === 'portal_home' ? await findExistingPortalHomePage(context, subdomain) : null;
 
   let page;
+  // (버그 수정, checkPortalDashboard와 동일한 원인: 사용자 재현 - 재부팅 직후 프로그램이
+  // 체험학습보고서 자동 확인을 실행했는데 학교 포털 서버가 아직 응답하지 않아 about:blank 탭이
+  // 계속 쌓였다) launchService도 checkFieldTripApplyPending/checkFieldTripReportPending 등
+  // 백그라운드 주기 확인이 그대로 재사용하는 경로라 똑같은 누적이 날 수 있다 - 이번 호출에서
+  // 정말로 새로 연 탭일 때만(재사용한 탭이 아닐 때만) 아래 포털 홈 진입이 실패하면 그 탭을
+  // 닫고 나서 에러를 던진다.
+  let freshlyOpenedTab = false;
   if (existingSystemTab) {
     console.log(`[PortalPet] 이미 ${targetSystem} 탭이 열려 있음 - 새 탭을 열지 않고 그 탭을 재사용`);
     page = existingSystemTab;
@@ -2907,6 +2914,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
     const openNewTab = await shouldOpenNewTabFor(serviceKey, subdomain);
     page = openNewTab ? await openFreshTab(context) : await getPage(context);
+    freshlyOpenedTab = openNewTab;
   }
   await closeExtraPages(context, page); // 이전 클릭이 남겨둔 신청서 작성 창 등 정리 (다른 탭/창)
   // (수정) 근무상황신청/출장신청 창은 새 탭이 아니라 같은 페이지 안의 오버레이 다이얼로그로
@@ -2942,18 +2950,28 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   } else {
     const portalUrl = buildPortalUrl(subdomain);
     console.log('[PortalPet] navigating to', portalUrl);
-    await gotoWithRetry(page, portalUrl, { waitUntil: 'domcontentloaded' });
+    try {
+      await gotoWithRetry(page, portalUrl, { waitUntil: 'domcontentloaded' });
 
-    const result = await completeCertLoginIfNeeded(page, password);
-    console.log('[PortalPet] login result:', result);
-    loggedIn = result.loggedIn;
+      const result = await completeCertLoginIfNeeded(page, password);
+      console.log('[PortalPet] login result:', result);
+      loggedIn = result.loggedIn;
 
-    // 방금 인증서 로그인을 마쳤든, 이미 로그인돼 있던 세션/프로필이라 모달 자체가 안 떴든,
-    // 다음 메뉴 이동 전에 포털 홈에 확실히 도착했다는 걸 보장한다 (로그인 페이지에 갇힌
-    // 상태로 넘어가지 않도록).
-    const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
-    if (!reachedHome) {
-      throw new Error(buildLoginFailureMessage(browserChannel));
+      // 방금 인증서 로그인을 마쳤든, 이미 로그인돼 있던 세션/프로필이라 모달 자체가 안 떴든,
+      // 다음 메뉴 이동 전에 포털 홈에 확실히 도착했다는 걸 보장한다 (로그인 페이지에 갇힌
+      // 상태로 넘어가지 않도록).
+      const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
+      if (!reachedHome) {
+        throw new Error(buildLoginFailureMessage(browserChannel));
+      }
+    } catch (e) {
+      if (freshlyOpenedTab) {
+        // page.close()가 트리거하는 'close' 리스너(openFreshTab/getPage에 등록됨)가
+        // mainServiceTabs/sharedPage 정리는 알아서 해준다 - 여기서는 닫기만 한다.
+        console.log('[PortalPet] 포털 홈 진입 실패 - 방금 새로 연 탭을 정리함(탭 누적 방지):', e.message);
+        await page.close().catch(() => {});
+      }
+      throw e;
     }
   }
 
