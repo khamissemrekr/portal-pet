@@ -3193,6 +3193,12 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
   // 열지 않고 그 탭을 그대로 재사용한다.
   const existingPortalHome = await findExistingPortalHomePage(context, subdomain);
   let page;
+  // (버그 수정, 사용자 재현: "탭이 계속 새로 뜬다" - 학교 포털 서버 자체가 응답하지 않을 때
+  // (ERR_CONNECTION_TIMED_OUT) 매 주기(결재 현황/체험학습 자동 확인)마다 새 탭을 열었다가
+  // 실패하면 그 죽은 탭을 정리하지 않고 그냥 던져버려서, 서버가 복구될 때까지 몇 시간이고
+  // 빈/오류 탭이 계속 쌓였다. 이번 호출에서 정말로 새로 연 탭일 때만(재사용한 탭이 아닐 때만)
+  // 아래에서 네비게이션이 실패하면 그 탭을 닫고 나서 에러를 던진다.
+  let freshlyOpenedTab = false;
   if (existingPortalHome) {
     console.log('[PortalPet] 이미 열려 있는 업무포털 메인 탭을 찾음 - 새 탭을 열지 않고 재사용');
     page = existingPortalHome;
@@ -3202,6 +3208,7 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
   } else {
     const openNewTab = await shouldOpenNewTabFor('portal_home', subdomain);
     page = openNewTab ? await openFreshTab(context) : await getPage(context);
+    freshlyOpenedTab = openNewTab;
   }
   await closeExtraPages(context, page);
 
@@ -3232,12 +3239,22 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
   } else {
     const portalUrl = buildPortalUrl(subdomain);
     console.log('[PortalPet] navigating to', portalUrl);
-    await gotoWithRetry(page, portalUrl, { waitUntil: 'domcontentloaded' });
-    const loginResult = await completeCertLoginIfNeeded(page, password);
-    console.log('[PortalPet] login result:', loginResult);
-    const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
-    if (!reachedHome) {
-      throw new Error(buildLoginFailureMessage(browserChannel));
+    try {
+      await gotoWithRetry(page, portalUrl, { waitUntil: 'domcontentloaded' });
+      const loginResult = await completeCertLoginIfNeeded(page, password);
+      console.log('[PortalPet] login result:', loginResult);
+      const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
+      if (!reachedHome) {
+        throw new Error(buildLoginFailureMessage(browserChannel));
+      }
+    } catch (e) {
+      if (freshlyOpenedTab) {
+        // page.close()가 트리거하는 'close' 리스너(openFreshTab/getPage에 등록됨)가
+        // mainServiceTabs/sharedPage 정리는 알아서 해준다 - 여기서는 닫기만 한다.
+        console.log('[PortalPet] 포털 홈 진입 실패 - 방금 새로 연 탭을 정리함(탭 누적 방지):', e.message);
+        await page.close().catch(() => {});
+      }
+      throw e;
     }
   }
 
