@@ -472,9 +472,18 @@ function sanitizeHiddenMenuItems(hiddenMenuItems) {
   return hiddenMenuItems.filter((k) => TOGGLEABLE_MENU_KEYS.includes(k));
 }
 
+// (신규, 사용자 요청) 체험신청서/체험보고서 자동 확인 시각(예: "08:50")을 "HH:MM" 문자열로
+// 저장/파싱한다 - <input type="time"> 값 그대로다. 형식이 안 맞으면(오래된 렌더러/조작된 값
+// 등) null을 돌려줘 호출 쪽에서 기존 값이나 기본값으로 되돌리게 한다.
+function parseHHMM(value) {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(value || '').trim());
+  return m ? { hour: Number(m[1]), minute: Number(m[2]) } : null;
+}
+
 ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
+  fieldTripCheckTime1, fieldTripCheckTime2,
   fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
   neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems,
@@ -499,6 +508,10 @@ ipcMain.handle('save-setup', (_evt, {
   const safeMinutes = Number.isFinite(parsedMinutes)
     ? Math.max(1, Math.min(120, Math.round(parsedMinutes)))
     : (previous.dashboardRefreshMinutes ?? 5);
+
+  // 체험신청서/체험보고서 확인 시각("HH:MM") - 형식이 안 맞으면 기존 값이나 기본값(08:50/15:00)으로.
+  const safeFieldTripCheckTime1 = parseHHMM(fieldTripCheckTime1) ? fieldTripCheckTime1 : (previous.fieldTripCheckTime1 ?? '08:50');
+  const safeFieldTripCheckTime2 = parseHHMM(fieldTripCheckTime2) ? fieldTripCheckTime2 : (previous.fieldTripCheckTime2 ?? '15:00');
 
   // 메뉴 자동 닫힘 시간(초) - 너무 짧으면(예: 0, 음수) 펼치자마자 닫혀버리니 최소 1초로 막는다.
   const parsedAutoCloseSeconds = Number(panelAutoCloseSeconds);
@@ -526,8 +539,10 @@ ipcMain.handle('save-setup', (_evt, {
     panelOpacity: safeOpacity, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
     dashboardAutoRefresh: dashboardAutoRefresh !== false, // 기본값 true - 나이스/K-에듀파인 결재 현황 자동 확인
     dashboardRefreshMinutes: safeMinutes, // 기본값 5분
-    fieldTripApplyAutoRefresh: !!fieldTripApplyAutoRefresh, // 기본값 false - 교외체험학습신청서관리 접수대기/미상신 자동 확인(매일 08:50, 15:00)
-    fieldTripReportAutoRefresh: !!fieldTripReportAutoRefresh, // 기본값 false - 교외체험학습보고서관리 접수대기/미상신 자동 확인(매일 08:50, 15:00)
+    fieldTripCheckTime1: safeFieldTripCheckTime1, // 체험신청서/체험보고서 확인 시각 1(기본 08:50)
+    fieldTripCheckTime2: safeFieldTripCheckTime2, // 체험신청서/체험보고서 확인 시각 2(기본 15:00)
+    fieldTripApplyAutoRefresh: !!fieldTripApplyAutoRefresh, // 기본값 false - 교외체험학습신청서관리 접수대기/미상신 자동 확인(위 두 시각에만)
+    fieldTripReportAutoRefresh: !!fieldTripReportAutoRefresh, // 기본값 false - 교외체험학습보고서관리 접수대기/미상신 자동 확인(위 두 시각에만)
     panelAutoCloseEnabled: !!panelAutoCloseEnabled, // 기본값 false - 메뉴를 일정 시간 뒤 자동으로 접을지
     panelAutoCloseSeconds: safeAutoCloseSeconds, // 자동으로 접히기까지 걸리는 시간(초)
     neisRoleMode: safeNeisRoleMode, // '학급담임' | '부서장' | 'custom'
@@ -738,14 +753,17 @@ async function runDashboardRefresh() {
 // 분리한다.
 // (수정, 사용자 재현: 로그인 화면 탭이 계속 늘어남 - "심각한 문제라고 생각해") 원래 15분마다
 // 하루 종일(심야 포함) 확인했는데, 그러다 나이스 세션이 자주 끊겨 매번 새 탭을 열게 되면서
-// 탭이 수십 개씩 쌓였다. 사용자 요청대로 분 단위 주기를 없애고, 하루 두 번(08:50, 15:00)
-// 정해진 시각에만 확인하도록 바꿔 노출 빈도 자체를 줄인다.
-const FIELD_TRIP_CHECK_TIMES = [{ hour: 8, minute: 50 }, { hour: 15, minute: 0 }];
-
-function msUntilNextFieldTripCheck() {
+// 탭이 수십 개씩 쌓였다. 사용자 요청대로 분 단위 주기를 없애고, 하루 두 번(설정 화면에서 지정한
+// 시각, 기본 08:50/15:00) 정해진 시각에만 확인하도록 바꿔 노출 빈도 자체를 줄인다. (신규, 사용자
+// 요청) 두 시각은 하드코딩이 아니라 config.fieldTripCheckTime1/2에서 읽는다.
+function msUntilNextFieldTripCheck(config) {
   const now = new Date();
+  const times = [
+    parseHHMM(config.fieldTripCheckTime1) || { hour: 8, minute: 50 },
+    parseHHMM(config.fieldTripCheckTime2) || { hour: 15, minute: 0 },
+  ];
   let next = null;
-  for (const { hour, minute } of FIELD_TRIP_CHECK_TIMES) {
+  for (const { hour, minute } of times) {
     const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
     if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
     if (next === null || candidate < next) next = candidate;
@@ -767,8 +785,8 @@ function scheduleFieldTripApplyRefresh() {
   if (!(config.subdomain || config.region)) return;
   if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
 
-  const delay = msUntilNextFieldTripCheck();
-  console.log(`[PortalPet] 교외체험학습신청서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 08:50, 15:00)`);
+  const delay = msUntilNextFieldTripCheck(config);
+  console.log(`[PortalPet] 교외체험학습신청서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 ${config.fieldTripCheckTime1 || '08:50'}, ${config.fieldTripCheckTime2 || '15:00'})`);
   fieldTripApplyTimer = setTimeout(async () => {
     await runFieldTripApplyRefresh();
     scheduleFieldTripApplyRefresh(); // 다음 예정 시각으로 재예약
@@ -823,9 +841,9 @@ async function runFieldTripApplyRefresh() {
 }
 
 // ===== 교외체험학습보고서관리 접수대기/미상신 건수 자동 확인(배지) =====
-// 신청서관리와 동일한 패턴(매일 08:50, 15:00)으로 켜고 끌 수 있다. 다만 이 화면은 상태 필드
-// 이름이 "접수상태"가 아니라 "처리상태"라 loginEngine.checkFieldTripReportPending에서 그
-// 차이를 흡수한다(실측 확인, 2026-08-06).
+// 신청서관리와 동일한 패턴(config.fieldTripCheckTime1/2에 지정된 시각)으로 켜고 끌 수 있다.
+// 다만 이 화면은 상태 필드 이름이 "접수상태"가 아니라 "처리상태"라
+// loginEngine.checkFieldTripReportPending에서 그 차이를 흡수한다(실측 확인, 2026-08-06).
 let fieldTripReportTimer = null;
 let lastFieldTripReportPendingCount = null;
 
@@ -840,8 +858,8 @@ function scheduleFieldTripReportRefresh() {
   if (!(config.subdomain || config.region)) return;
   if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
 
-  const delay = msUntilNextFieldTripCheck();
-  console.log(`[PortalPet] 교외체험학습보고서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 08:50, 15:00)`);
+  const delay = msUntilNextFieldTripCheck(config);
+  console.log(`[PortalPet] 교외체험학습보고서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 ${config.fieldTripCheckTime1 || '08:50'}, ${config.fieldTripCheckTime2 || '15:00'})`);
   fieldTripReportTimer = setTimeout(async () => {
     await runFieldTripReportRefresh();
     scheduleFieldTripReportRefresh(); // 다음 예정 시각으로 재예약

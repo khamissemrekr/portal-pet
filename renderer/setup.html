@@ -162,13 +162,24 @@
     배지로 표시됩니다. 지정한 주기마다 백그라운드에서 자동으로 확인합니다.
   </div>
 
+  <label style="margin-top:16px;">체험신청서/체험보고서 확인 시각</label>
+  <div style="display:flex; gap:10px;">
+    <label style="flex:1; margin-top:4px;">오전
+      <input id="fieldTripCheckTime1" type="time" value="08:50" />
+    </label>
+    <label style="flex:1; margin-top:4px;">오후
+      <input id="fieldTripCheckTime2" type="time" value="15:00" />
+    </label>
+  </div>
+  <div class="note">아래 두 자동 확인은 매일 이 두 시각에만 실행됩니다.</div>
+
   <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
     <input id="fieldTripApplyAutoRefresh" type="checkbox" style="width:auto; margin-top:0;" />
     <span>교외체험학습신청서 접수대기/미상신 건수 자동 확인</span>
   </label>
   <div class="note">
     "체험신청서" 버튼에 접수대기·미상신 상태인 건수가 배지로 표시됩니다. 나이스 화면까지 실제로
-    이동해서 확인하는 작업이라 매일 정해진 두 시각(오전 8:50, 오후 3:00)에만 확인합니다(기본 꺼짐).
+    이동해서 확인하는 작업이라 위에서 지정한 시각에만 확인합니다(기본 꺼짐).
   </div>
 
   <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
@@ -177,7 +188,7 @@
   </label>
   <div class="note">
     "체험보고서" 버튼에 접수대기·미상신 상태인 건수가 배지로 표시됩니다. 위 신청서 확인과 마찬가지로
-    매일 정해진 두 시각(오전 8:50, 오후 3:00)에만 확인합니다(기본 꺼짐).
+    위에서 지정한 시각에만 확인합니다(기본 꺼짐).
   </div>
 
   <label style="margin-top:16px;">자주 가는 사이트</label>
@@ -224,6 +235,8 @@
     const dashboardAutoRefreshInput = document.getElementById('dashboardAutoRefresh');
     const dashboardMinutesInput = document.getElementById('dashboardRefreshMinutes');
     const dashboardMinutesWrap = document.getElementById('dashboardMinutesWrap');
+    const fieldTripCheckTime1Input = document.getElementById('fieldTripCheckTime1');
+    const fieldTripCheckTime2Input = document.getElementById('fieldTripCheckTime2');
     const fieldTripApplyAutoRefreshInput = document.getElementById('fieldTripApplyAutoRefresh');
     const fieldTripReportAutoRefreshInput = document.getElementById('fieldTripReportAutoRefresh');
     const panelAutoCloseEnabledInput = document.getElementById('panelAutoCloseEnabled');
@@ -421,6 +434,8 @@
       dashboardAutoRefreshInput.checked = config?.dashboardAutoRefresh !== false;
       dashboardMinutesInput.value = String(config?.dashboardRefreshMinutes ?? 5);
       syncDashboardMinutesEnabled();
+      fieldTripCheckTime1Input.value = config?.fieldTripCheckTime1 || '08:50';
+      fieldTripCheckTime2Input.value = config?.fieldTripCheckTime2 || '15:00';
       fieldTripApplyAutoRefreshInput.checked = !!config?.fieldTripApplyAutoRefresh;
       fieldTripReportAutoRefreshInput.checked = !!config?.fieldTripReportAutoRefresh;
       panelAutoCloseEnabledInput.checked = !!config?.panelAutoCloseEnabled;
@@ -473,6 +488,8 @@
       const panelOpacity = Number(opacityInput.value) / 100;
       const dashboardAutoRefresh = dashboardAutoRefreshInput.checked;
       const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
+      const fieldTripCheckTime1 = fieldTripCheckTime1Input.value || '08:50';
+      const fieldTripCheckTime2 = fieldTripCheckTime2Input.value || '15:00';
       const fieldTripApplyAutoRefresh = fieldTripApplyAutoRefreshInput.checked;
       const fieldTripReportAutoRefresh = fieldTripReportAutoRefreshInput.checked;
       const panelAutoCloseEnabled = panelAutoCloseEnabledInput.checked;
@@ -492,6 +509,7 @@
         region, subdomain, password, browserProfile, browserChannel, autoStartOnLogin,
         autoLaunchMessenger, autoLaunchSchedule, minimizeMessengerOnLaunch,
         customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
+        fieldTripCheckTime1, fieldTripCheckTime2,
         fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
         panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
         hiddenMenuItems,

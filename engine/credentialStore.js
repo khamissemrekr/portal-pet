@@ -23,8 +23,10 @@ function loadConfig() {
       dashboardRefreshMinutes: 5, // 확인 주기(분)
       // 교외체험학습신청서/보고서관리 접수대기/미상신 건수 자동 확인 - 기본 꺼짐. (수정, 사용자
       // 재현: 15분 간격으로 하루 종일 돌다가 나이스 세션이 자주 끊겨 로그인 탭이 수십 개씩
-      // 쌓이는 문제가 있었다) 더는 분 단위 주기를 쓰지 않고, 매일 정해진 두 시각(FIELD_TRIP_CHECK_TIMES,
-      // main.js)에만 확인한다.
+      // 쌓이는 문제가 있었다) 더는 분 단위 주기를 쓰지 않고, 매일 정해진 두 시각에만 확인한다.
+      // (신규, 사용자 요청) 그 두 시각을 설정 화면에서 직접 바꿀 수 있다.
+      fieldTripCheckTime1: '08:50', // 확인 시각 1("HH:MM")
+      fieldTripCheckTime2: '15:00', // 확인 시각 2("HH:MM")
       fieldTripApplyAutoRefresh: false,
       fieldTripReportAutoRefresh: false,
       panelAutoCloseEnabled: false, // 메뉴(펼침 패널)를 일정 시간 뒤 자동으로 접을지 여부 - 기본 꺼짐
@@ -39,6 +41,7 @@ function loadConfig() {
   return {
     autoLaunchMessenger: false, autoLaunchSchedule: false, minimizeMessengerOnLaunch: true, customLinks: [], autoLogin: true,
     browserChannel: 'chrome', panelOpacity: 0.92, dashboardAutoRefresh: true, dashboardRefreshMinutes: 5,
+    fieldTripCheckTime1: '08:50', fieldTripCheckTime2: '15:00',
     fieldTripApplyAutoRefresh: false,
     fieldTripReportAutoRefresh: false,
     panelAutoCloseEnabled: false, panelAutoCloseSeconds: 10,
