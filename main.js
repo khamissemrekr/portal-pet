@@ -14,6 +14,22 @@ const { listBrowserProfiles } = require('./engine/browserProfiles');
 const { startDialogSuppressor, stopDialogSuppressor } = require('./engine/dialogSuppressor');
 const { startFileLogger, getLogFilePath } = require('./engine/fileLogger');
 
+// 중복 실행 방지 - 이게 없으면(원래 없었음) Windows 시작프로그램 등록이 중복되거나(예: 예전
+// 버전이 만들어둔 시작프로그램 폴더 바로가기 + 이후 추가된 트레이 체크박스의 레지스트리 등록이
+// 함께 남는 경우) 재부팅 시 PortalPet 프로세스가 두 개 뜨는 문제가 생긴다. 각 인스턴스가 독립적으로
+// runStartupAutoLaunch()를 실행해 브라우저 자동화(메신저/일정 로그인)를 동시에 두 벌 돌리면서
+// 같은 탭을 서로 가로채 빈 화면이 여러 개 뜨는 현상까지 함께 설명된다. 두 번째 인스턴스는 아무것도
+// 하지 않고 즉시 종료하고, 대신 이미 떠 있는 기존 창을 보여준다.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  return;
+}
+app.on('second-instance', () => {
+  ensureWindow();
+  if (win) { win.show(); win.focus(); }
+});
+
 // 배포판(패키지된 exe)은 콘솔 창이 없어서 console.log를 볼 방법이 없다 - 이번 세션에서 겪은
 // 여러 버그가 전부 npm start(터미널 보이는 개발 모드)에서 붙여받은 로그로만 진단 가능했다.
 // 트레이 메뉴의 "로그 폴더 열기"로 사용자가 이 파일을 쉽게 찾아 보내줄 수 있게 한다.
