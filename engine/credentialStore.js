@@ -21,10 +21,12 @@ function loadConfig() {
       panelOpacity: 0.92, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
       dashboardAutoRefresh: true, // 나이스 미결/협조함, K-에듀파인 결재(긴급) 자동 확인
       dashboardRefreshMinutes: 5, // 확인 주기(분)
-      fieldTripApplyAutoRefresh: false, // 교외체험학습신청서관리 접수대기/미상신 건수 자동 확인 - 기본 꺼짐(별도 주기)
-      fieldTripApplyRefreshMinutes: 15, // 확인 주기(분) - 결재 현황보다 덜 급해 기본값을 길게
-      fieldTripReportAutoRefresh: false, // 교외체험학습보고서관리 접수대기/미상신 건수 자동 확인 - 기본 꺼짐(별도 주기)
-      fieldTripReportRefreshMinutes: 15, // 확인 주기(분)
+      // 교외체험학습신청서/보고서관리 접수대기/미상신 건수 자동 확인 - 기본 꺼짐. (수정, 사용자
+      // 재현: 15분 간격으로 하루 종일 돌다가 나이스 세션이 자주 끊겨 로그인 탭이 수십 개씩
+      // 쌓이는 문제가 있었다) 더는 분 단위 주기를 쓰지 않고, 매일 정해진 두 시각(FIELD_TRIP_CHECK_TIMES,
+      // main.js)에만 확인한다.
+      fieldTripApplyAutoRefresh: false,
+      fieldTripReportAutoRefresh: false,
       panelAutoCloseEnabled: false, // 메뉴(펼침 패널)를 일정 시간 뒤 자동으로 접을지 여부 - 기본 꺼짐
       panelAutoCloseSeconds: 10, // 자동으로 접히기까지 걸리는 시간(초)
       neisRoleMode: '학급담임', // 나이스 출결관리 등에서 쓸 역할 - '학급담임' | '부서장' | 'custom'
@@ -37,8 +39,8 @@ function loadConfig() {
   return {
     autoLaunchMessenger: false, autoLaunchSchedule: false, minimizeMessengerOnLaunch: true, customLinks: [], autoLogin: true,
     browserChannel: 'chrome', panelOpacity: 0.92, dashboardAutoRefresh: true, dashboardRefreshMinutes: 5,
-    fieldTripApplyAutoRefresh: false, fieldTripApplyRefreshMinutes: 15,
-    fieldTripReportAutoRefresh: false, fieldTripReportRefreshMinutes: 15,
+    fieldTripApplyAutoRefresh: false,
+    fieldTripReportAutoRefresh: false,
     panelAutoCloseEnabled: false, panelAutoCloseSeconds: 10,
     neisRoleMode: '학급담임', neisRoleCustomText: '', certUserName: '',
     hiddenMenuItems: [],

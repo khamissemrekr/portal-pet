@@ -475,8 +475,7 @@ function sanitizeHiddenMenuItems(hiddenMenuItems) {
 ipcMain.handle('save-setup', (_evt, {
   region, subdomain, password, browserProfile, browserChannel, autoLaunchMessenger, autoLaunchSchedule,
   customLinks, autoLogin, panelOpacity, dashboardAutoRefresh, dashboardRefreshMinutes,
-  fieldTripApplyAutoRefresh, fieldTripApplyRefreshMinutes,
-  fieldTripReportAutoRefresh, fieldTripReportRefreshMinutes,
+  fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
   neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems,
 }) => {
@@ -500,18 +499,6 @@ ipcMain.handle('save-setup', (_evt, {
   const safeMinutes = Number.isFinite(parsedMinutes)
     ? Math.max(1, Math.min(120, Math.round(parsedMinutes)))
     : (previous.dashboardRefreshMinutes ?? 5);
-
-  // 교외체험학습신청서관리 확인 주기(분) - 결재 현황과 같은 이유로 최소 1분으로 막는다.
-  const parsedFieldTripMinutes = Number(fieldTripApplyRefreshMinutes);
-  const safeFieldTripMinutes = Number.isFinite(parsedFieldTripMinutes)
-    ? Math.max(1, Math.min(120, Math.round(parsedFieldTripMinutes)))
-    : (previous.fieldTripApplyRefreshMinutes ?? 15);
-
-  // 교외체험학습보고서관리 확인 주기(분) - 신청서관리와 동일한 이유.
-  const parsedFieldTripReportMinutes = Number(fieldTripReportRefreshMinutes);
-  const safeFieldTripReportMinutes = Number.isFinite(parsedFieldTripReportMinutes)
-    ? Math.max(1, Math.min(120, Math.round(parsedFieldTripReportMinutes)))
-    : (previous.fieldTripReportRefreshMinutes ?? 15);
 
   // 메뉴 자동 닫힘 시간(초) - 너무 짧으면(예: 0, 음수) 펼치자마자 닫혀버리니 최소 1초로 막는다.
   const parsedAutoCloseSeconds = Number(panelAutoCloseSeconds);
@@ -539,10 +526,8 @@ ipcMain.handle('save-setup', (_evt, {
     panelOpacity: safeOpacity, // 메뉴(펼침 패널) 배경 투명도, 0.2~1
     dashboardAutoRefresh: dashboardAutoRefresh !== false, // 기본값 true - 나이스/K-에듀파인 결재 현황 자동 확인
     dashboardRefreshMinutes: safeMinutes, // 기본값 5분
-    fieldTripApplyAutoRefresh: !!fieldTripApplyAutoRefresh, // 기본값 false - 교외체험학습신청서관리 접수대기/미상신 자동 확인(별도 주기)
-    fieldTripApplyRefreshMinutes: safeFieldTripMinutes, // 기본값 15분
-    fieldTripReportAutoRefresh: !!fieldTripReportAutoRefresh, // 기본값 false - 교외체험학습보고서관리 접수대기/미상신 자동 확인(별도 주기)
-    fieldTripReportRefreshMinutes: safeFieldTripReportMinutes, // 기본값 15분
+    fieldTripApplyAutoRefresh: !!fieldTripApplyAutoRefresh, // 기본값 false - 교외체험학습신청서관리 접수대기/미상신 자동 확인(매일 08:50, 15:00)
+    fieldTripReportAutoRefresh: !!fieldTripReportAutoRefresh, // 기본값 false - 교외체험학습보고서관리 접수대기/미상신 자동 확인(매일 08:50, 15:00)
     panelAutoCloseEnabled: !!panelAutoCloseEnabled, // 기본값 false - 메뉴를 일정 시간 뒤 자동으로 접을지
     panelAutoCloseSeconds: safeAutoCloseSeconds, // 자동으로 접히기까지 걸리는 시간(초)
     neisRoleMode: safeNeisRoleMode, // '학급담임' | '부서장' | 'custom'
@@ -747,16 +732,32 @@ async function runDashboardRefresh() {
   }
 }
 
-// ===== 교외체험학습신청서관리 접수대기/미상신 건수 자동 확인(배지) =====
+// ===== 교외체험학습신청서관리/보고서관리 접수대기/미상신 건수 자동 확인(배지) =====
 // (신규, 사용자 요청) 결재 현황 자동 확인과 원리는 같지만, 나이스 화면 안으로 실제 이동해야
-// 하는 무거운 작업이라(로그인 + 역할 탭 + 메가메뉴 + 사이드바 리프까지) 별도 주기로 켜고 끌 수
-// 있게 분리한다 - 결재 현황(포털 홈에서 바로 읽음, 가벼움)과 같은 주기로 묶으면 원치 않는데도
-// 매번 나이스까지 들어갔다 나오게 된다.
+// 하는 무거운 작업이라(로그인 + 역할 탭 + 메가메뉴 + 사이드바 리프까지) 별도로 켜고 끌 수 있게
+// 분리한다.
+// (수정, 사용자 재현: 로그인 화면 탭이 계속 늘어남 - "심각한 문제라고 생각해") 원래 15분마다
+// 하루 종일(심야 포함) 확인했는데, 그러다 나이스 세션이 자주 끊겨 매번 새 탭을 열게 되면서
+// 탭이 수십 개씩 쌓였다. 사용자 요청대로 분 단위 주기를 없애고, 하루 두 번(08:50, 15:00)
+// 정해진 시각에만 확인하도록 바꿔 노출 빈도 자체를 줄인다.
+const FIELD_TRIP_CHECK_TIMES = [{ hour: 8, minute: 50 }, { hour: 15, minute: 0 }];
+
+function msUntilNextFieldTripCheck() {
+  const now = new Date();
+  let next = null;
+  for (const { hour, minute } of FIELD_TRIP_CHECK_TIMES) {
+    const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+    if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
+    if (next === null || candidate < next) next = candidate;
+  }
+  return next.getTime() - now.getTime();
+}
+
 let fieldTripApplyTimer = null;
 let lastFieldTripApplyPendingCount = null; // 직전 확인값 - 늘어났을 때만 알림
 
 function scheduleFieldTripApplyRefresh() {
-  if (fieldTripApplyTimer) { clearInterval(fieldTripApplyTimer); fieldTripApplyTimer = null; }
+  if (fieldTripApplyTimer) { clearTimeout(fieldTripApplyTimer); fieldTripApplyTimer = null; }
 
   const config = credentialStore.loadConfig();
   if (config.fieldTripApplyAutoRefresh !== true) {
@@ -766,10 +767,12 @@ function scheduleFieldTripApplyRefresh() {
   if (!(config.subdomain || config.region)) return;
   if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
 
-  const minutes = Math.max(1, Number(config.fieldTripApplyRefreshMinutes) || 15);
-  console.log(`[PortalPet] 교외체험학습신청서관리 자동 확인 스케줄 설정: ${minutes}분마다`);
-  fieldTripApplyTimer = setInterval(runFieldTripApplyRefresh, minutes * 60 * 1000);
-  runFieldTripApplyRefresh(); // 켜자마자 한 번 바로 확인해서 배지를 채워둔다.
+  const delay = msUntilNextFieldTripCheck();
+  console.log(`[PortalPet] 교외체험학습신청서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 08:50, 15:00)`);
+  fieldTripApplyTimer = setTimeout(async () => {
+    await runFieldTripApplyRefresh();
+    scheduleFieldTripApplyRefresh(); // 다음 예정 시각으로 재예약
+  }, delay);
 }
 
 function notifyFieldTripApplyIncrease(count) {
@@ -820,14 +823,14 @@ async function runFieldTripApplyRefresh() {
 }
 
 // ===== 교외체험학습보고서관리 접수대기/미상신 건수 자동 확인(배지) =====
-// 신청서관리와 동일한 패턴 - 별도 주기로 켜고 끌 수 있다. 다만 이 화면은 상태 필드 이름이
-// "접수상태"가 아니라 "처리상태"라 loginEngine.checkFieldTripReportPending에서 그 차이를
-// 흡수한다(실측 확인, 2026-08-06).
+// 신청서관리와 동일한 패턴(매일 08:50, 15:00)으로 켜고 끌 수 있다. 다만 이 화면은 상태 필드
+// 이름이 "접수상태"가 아니라 "처리상태"라 loginEngine.checkFieldTripReportPending에서 그
+// 차이를 흡수한다(실측 확인, 2026-08-06).
 let fieldTripReportTimer = null;
 let lastFieldTripReportPendingCount = null;
 
 function scheduleFieldTripReportRefresh() {
-  if (fieldTripReportTimer) { clearInterval(fieldTripReportTimer); fieldTripReportTimer = null; }
+  if (fieldTripReportTimer) { clearTimeout(fieldTripReportTimer); fieldTripReportTimer = null; }
 
   const config = credentialStore.loadConfig();
   if (config.fieldTripReportAutoRefresh !== true) {
@@ -837,10 +840,12 @@ function scheduleFieldTripReportRefresh() {
   if (!(config.subdomain || config.region)) return;
   if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
 
-  const minutes = Math.max(1, Number(config.fieldTripReportRefreshMinutes) || 15);
-  console.log(`[PortalPet] 교외체험학습보고서관리 자동 확인 스케줄 설정: ${minutes}분마다`);
-  fieldTripReportTimer = setInterval(runFieldTripReportRefresh, minutes * 60 * 1000);
-  runFieldTripReportRefresh();
+  const delay = msUntilNextFieldTripCheck();
+  console.log(`[PortalPet] 교외체험학습보고서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 08:50, 15:00)`);
+  fieldTripReportTimer = setTimeout(async () => {
+    await runFieldTripReportRefresh();
+    scheduleFieldTripReportRefresh(); // 다음 예정 시각으로 재예약
+  }, delay);
 }
 
 function notifyFieldTripReportIncrease(count) {
