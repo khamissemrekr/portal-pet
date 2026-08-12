@@ -1,6 +1,6 @@
 {
   "name": "portal-pet",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "업무포털 원클릭 접속 데스크톱 펫 (clawd-on-desk의 미니모드/트레이 UX를 참고해 처음부터 새로 구현)",
   "author": "PortalPet",
   "main": "main.js",
