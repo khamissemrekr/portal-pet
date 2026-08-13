@@ -283,6 +283,7 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
       minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
       neisRoleLabel: resolveNeisRoleLabel(config),
       certUserName: config.certUserName || '',
+      popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
     });
     return result;
   } catch (err) {
@@ -502,7 +503,7 @@ ipcMain.handle('save-setup', (_evt, {
   fieldTripCheckTime1, fieldTripCheckTime2,
   fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
-  neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems,
+  neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems, popupAutoCloseEnabled,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
@@ -565,6 +566,11 @@ ipcMain.handle('save-setup', (_evt, {
     neisRoleCustomText: String(neisRoleCustomText || '').trim(), // neisRoleMode가 'custom'일 때의 역할 탭 이름
     certUserName: String(certUserName || '').trim(), // 인증서가 여러 개일 때 선택할 인증서의 "사용자" 이름
     hiddenMenuItems: sanitizeHiddenMenuItems(hiddenMenuItems), // 메뉴 패널에서 숨길 하위 메뉴 key 목록
+    // (신규, 사용자 재현: K-에듀파인 게시판 첨부파일 다운로드가 안 됨 - 원인 진단용 옵션)
+    // 나이스/K-에듀파인 공지 팝업을 자동으로 감지해 닫아주는 기능. 기본값 true(켜짐) - 끄면
+    // 공지 팝업이 화면을 가려도 사용자가 직접 닫아야 하지만, 자동 닫기 로직이 다른 화면 요소를
+    // 잘못 건드릴 가능성 자체를 완전히 차단할 수 있다.
+    popupAutoCloseEnabled: popupAutoCloseEnabled !== false,
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();
@@ -638,6 +644,7 @@ async function runStartupAutoLaunch() {
         minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
         neisRoleLabel: resolveNeisRoleLabel(config),
         certUserName: config.certUserName || '',
+        popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
       });
     } catch (err) {
       console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);
@@ -755,6 +762,7 @@ async function runDashboardRefresh() {
     console.log('[PortalPet] 결재 현황 자동 확인 실행...');
     const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       certUserName: config.certUserName || '',
+      popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
     });
     notifyDashboardIncreases(result);
     if (win && !win.isDestroyed()) win.webContents.send('portal-dashboard-updated', result);
@@ -840,6 +848,7 @@ async function runFieldTripApplyRefresh() {
     const result = await loginEngine.checkFieldTripApplyPending(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       neisRoleLabel: resolveNeisRoleLabel(config),
       certUserName: config.certUserName || '',
+      popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
     });
     // (버그 수정, 사용자 재현: "3건인데 배지에는 17건(전체)로 나옴") pendingCount가 null이면
     // 나이스 쪽 필터 적용이 실패해 값을 신뢰할 수 없다는 뜻(loginEngine 쪽에서 이미 걸러줌) -
@@ -913,6 +922,7 @@ async function runFieldTripReportRefresh() {
     const result = await loginEngine.checkFieldTripReportPending(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       neisRoleLabel: resolveNeisRoleLabel(config),
       certUserName: config.certUserName || '',
+      popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
     });
     if (result?.ok && result.pendingCount != null) {
       notifyFieldTripReportIncrease(result.pendingCount);
@@ -941,6 +951,7 @@ ipcMain.handle('refresh-portal-dashboard', async () => {
   try {
     const result = await loginEngine.checkPortalDashboard(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       certUserName: config.certUserName || '',
+      popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
     });
     notifyDashboardIncreases(result); // 수동 새로고침도 정기 확인과 동일하게 증가분 알림 대상에 포함
     return result;

@@ -83,6 +83,11 @@ let minimizeMessengerOnLaunchEnabled = true;
 // 매개변수로 계속 넘기는 대신 모듈 전역으로 관리한다. 빈 문자열이면(설정 안 함, 또는 인증서가
 // 하나뿐인 대부분의 경우) 아무것도 하지 않고 예전 동작(비밀번호 입력창에 바로 타이핑) 그대로다.
 let certUserNameToSelect = '';
+// (신규, 사용자 요청: K-에듀파인 게시판 첨부파일 다운로드가 안 되는 문제 진단/회피용 옵션)
+// 나이스/K-에듀파인 공지 팝업을 감지해 자동으로 닫아주는 기능 전체를 끌 수 있다. 위 두 값과
+// 같은 이유로 모듈 전역 상태로 관리하며, launchService/checkPortalDashboard 시작 시 매번
+// 사용자 설정값으로 갱신된다. 기본값은 true(켬, 기존 동작 유지).
+let popupAutoCloseEnabled = true;
 
 /**
  * 새 프로필 특유의 "비밀번호를 저장하시겠습니까?" 팝업을 프로필 설정 파일에서 직접 꺼둔다.
@@ -277,6 +282,22 @@ async function getContext(browserProfile, subdomain, browserChannel = 'chrome') 
       // Playwright가 chrome/msedge 채널에 기본으로 붙이는 --no-sandbox 때문에 "지원되지 않는
       // 명령줄 플래그" 경고 배너가 떴다. 실제로 제거해도 되는 기본 인자라 무시 목록에 넣는다.
       ignoreDefaultArgs: ['--no-sandbox'],
+      // (버그 수정, 사용자 재현: K-에듀파인 게시판 첨부파일 PDF를 눌러도 "저장 위치 지정" 창이
+      // 안 뜨고, 크롬 "다운로드 기록"에 원래 파일명 대신 임의의 GUID 이름 항목만 남으며 실제
+      // 다운로드 폴더엔 파일이 없음) Playwright는 acceptDownloads 기본값이 true라, 우리가
+      // 'download' 이벤트를 따로 처리하지 않아도 모든 다운로드를 자동으로 가로채 자체 임시
+      // 폴더에 GUID 파일명으로 저장해버린다 - 크롬의 원래 저장 위치 선택 창(사용자가 "다운로드
+      // 전 저장 위치 확인"을 켜둔 경우)이 뜰 기회 자체가 없다. 이 앱은 어디서도 download 이벤트를
+      // 받아 처리하지 않으므로(자동화가 파일을 다운로드할 필요가 있는 곳이 없음), Playwright의
+      // 가로채기를 꺼서 크롬이 평소와 완전히 같은 방식(네이티브 저장 위치 창, 실제 파일명, 사용자가
+      // 지정한 다운로드 폴더)으로 다운로드를 처리하게 한다.
+      // (버그 수정 2 - 사용자 재현: acceptDownloads:false로 바꿔도 여전히 다운로드가 전혀 안 됨,
+      // 반응조차 없음) acceptDownloads:false는 "크롬 기본 동작"이 아니라 Playwright가 CDP로
+      // 모든 다운로드를 명시적으로 거부(deny)하는 옵션이었다 - 그래서 클릭해도 아무 일도 안
+      // 일어난 것으로 보인다(반대로 true였을 때는 Playwright가 가로채 GUID 임시 파일로 저장).
+      // 아래에서 CDP Browser.setDownloadBehavior('default')를 직접 호출해 크롬이 자동화 여부와
+      // 무관하게 원래 하던 대로(네이티브 저장 위치 창 등) 다운로드를 처리하도록 되돌린다.
+      acceptDownloads: false,
     });
   } catch (err) {
     const browserLabel = browserChannel === 'msedge' ? '엣지' : '크롬';
@@ -289,6 +310,20 @@ async function getContext(browserProfile, subdomain, browserChannel = 'chrome') 
     throw new Error(
       `${browserLabel} 브라우저를 실행할 수 없습니다. 이 PC에 ${browserLabel}가 설치돼 있는지 확인해 주세요. (원인: ${err.message})`
     );
+  }
+
+  // CDP로 다운로드 동작을 크롬 네이티브 기본값('default')으로 되돌린다 - Browser 도메인
+  // 명령이지만 페이지 타깃에 붙인 CDP 세션으로 보내도 브라우저 전체에 적용된다(실측 확인된
+  // Playwright/Puppeteer 커뮤니티의 일반적인 우회법). 이후 새로 열리는 탭에도 그대로 적용된다.
+  try {
+    const firstPage = sharedContext.pages()[0];
+    if (firstPage) {
+      const cdpSession = await sharedContext.newCDPSession(firstPage);
+      await cdpSession.send('Browser.setDownloadBehavior', { behavior: 'default' });
+      console.log('[PortalPet] 다운로드 동작을 크롬 기본값(default)으로 되돌림');
+    }
+  } catch (e) {
+    console.log('[PortalPet] 다운로드 동작을 크롬 기본값으로 되돌리는 데 실패(non-fatal):', e.message);
   }
 
   lastBrowserProfileKey = profileKey;
@@ -320,6 +355,7 @@ async function getContext(browserProfile, subdomain, browserChannel = 'chrome') 
       );
     });
   };
+
   sharedContext.on('page', attachDialogPassthrough);
   sharedContext.pages().forEach(attachDialogPassthrough);
 
@@ -886,7 +922,17 @@ function isTopmostClosableDialogPresentInPage() {
   const hasFormInputs = (el) => [...el.querySelectorAll(
     'input:not([type="checkbox"]):not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])'
   )].some(isVisible);
-  return !hasFormInputs(topDialog);
+  // (버그 수정, 사용자 재현: K-에듀파인 게시판 첨부파일 다운로드 모달에서 Escape가 반복적으로
+  // 자동 입력됨) 게시물정보 같은 모달은 role="dialog"를 쓰고 체크박스 외 입력 요소가 없어
+  // hasFormInputs만으로는 "닫아도 되는 안내 팝업"으로 오판했다. 파일 확장자가 보이는(다운로드
+  // 항목이 있는) 다이얼로그는 업무 화면과 동일하게 취급해 건드리지 않는다.
+  const EXT_RE = /\.(pdf|hwpx?|xlsx?|docx?|pptx?|zip|jpe?g|png|gif|txt|csv|bmp)(\s|["'\)\]]|$)/i;
+  const hasDownloadableFileEntries = (el) => [...el.querySelectorAll('*')].some((e) => {
+    if (!isVisible(e) || e.children.length > 2) return false;
+    const t = (e.textContent || '').trim();
+    return t.length < 200 && EXT_RE.test(t);
+  });
+  return !hasFormInputs(topDialog) && !hasDownloadableFileEntries(topDialog);
 }
 
 function findTopmostDialogCloseButtonInPage() {
@@ -943,6 +989,17 @@ function findTopmostDialogCloseButtonInPage() {
   )].some(isVisible);
   if (hasFormInputs(topDialog)) return null;
 
+  // (버그 수정, 사용자 재현: K-에듀파인 게시판 첨부파일 다운로드 모달이 자동으로 클릭/닫힘 시도됨)
+  // isTopmostClosableDialogPresentInPage와 동일한 이유로, 파일 확장자가 보이는(다운로드 항목이
+  // 있는) 다이얼로그는 업무 화면과 동일하게 취급해 건드리지 않는다.
+  const EXT_RE = /\.(pdf|hwpx?|xlsx?|docx?|pptx?|zip|jpe?g|png|gif|txt|csv|bmp)(\s|["'\)\]]|$)/i;
+  const hasDownloadableFileEntries = (el) => [...el.querySelectorAll('*')].some((e) => {
+    if (!isVisible(e) || e.children.length > 2) return false;
+    const t = (e.textContent || '').trim();
+    return t.length < 200 && EXT_RE.test(t);
+  });
+  if (hasDownloadableFileEntries(topDialog)) return null;
+
   // (버그 수정 4) 같은 다이얼로그의 닫기 아이콘/버튼을 계속 다시 찾아 무한 반복 클릭하는 것을
   // 막기 위해, 한 번 클릭 시도한 노드에는 표식을 남기고 다음부터는 건너뛴다(진짜 팝업이면
   // 클릭 후 사라지므로 표식이 남을 일이 없다).
@@ -986,6 +1043,29 @@ function findTopmostDialogCloseButtonInPage() {
  * 보임)만 재확인하고, 실제로 닫을 버튼은 찾지 않는다 - closeAnyPopupsCore가 Alt+End를 눌러도
  * 되는 상황인지, 누른 뒤 팝업이 실제로 사라졌는지 판단하는 용도.
  */
+// (버그 수정, 사용자 재현: K-에듀파인 게시판에서 첨부파일을 다운로드하려는데 창이 열리자마자
+// 사라져 다운로드가 안 됨) Nexacro는 공지사항뿐 아니라 첨부파일 다운로드 목록 창도 같은
+// "noticePopup" 접두사가 붙은 공용 ChildFrame 템플릿을 재사용하는 것으로 보인다. cl-dialog
+// 쪽은 hasFormInputs로 실제 업무 화면을 걸러내는데 noticePopup 쪽엔 그런 안전장치가 없어서,
+// 파일 목록 창까지 "공지 팝업"으로 오인해 Alt+End/btn_POP_Close로 즉시 닫아버렸다. 컨테이너
+// 안에 파일 확장자로 보이는 텍스트(다운로드 항목의 파일명)가 있으면 다운로드 창으로 보고
+// 건드리지 않는다.
+function hasDownloadableFileEntries(el) {
+  const isVisible = (e) => {
+    if (!e) return false;
+    const r = e.getBoundingClientRect();
+    const s = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
+  };
+  const EXT_RE = /\.(pdf|hwpx?|xlsx?|docx?|pptx?|zip|jpe?g|png|gif|txt|csv|bmp)(\s|["'\)\]]|$)/i;
+  return [...el.querySelectorAll('*')].some((e) => {
+    if (!isVisible(e)) return false;
+    if (e.children.length > 2) return false; // 파일명 한 줄짜리 요소만(래퍼 컨테이너 텍스트 오탐 방지)
+    const t = (e.textContent || '').trim();
+    return t.length < 200 && EXT_RE.test(t);
+  });
+}
+
 function isNexacroNoticePopupPresentInPage() {
   const isVisible = (e) => {
     if (!e) return false;
@@ -996,7 +1076,7 @@ function isNexacroNoticePopupPresentInPage() {
   if (isVisible(document.querySelector('#btnLgn')) || isVisible(document.querySelector('input[name="certPassword"]'))) {
     return false;
   }
-  return [...document.querySelectorAll('[id*="noticePopup"]')].some(isVisible);
+  return [...document.querySelectorAll('[id*="noticePopup"]')].some((e) => isVisible(e) && !hasDownloadableFileEntries(e));
 }
 
 function findNexacroNoticePopupCloseButtonInPage() {
@@ -1007,7 +1087,7 @@ function findNexacroNoticePopupCloseButtonInPage() {
     return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden';
   };
   const TRIED_ATTR = 'data-pp-tried';
-  const noticeContainers = [...document.querySelectorAll('[id*="noticePopup"]')].filter(isVisible);
+  const noticeContainers = [...document.querySelectorAll('[id*="noticePopup"]')].filter((e) => isVisible(e) && !hasDownloadableFileEntries(e));
   for (const container of noticeContainers) {
     const btn = [...container.querySelectorAll(
       '[role="button"][class*="btn_POP_Close"], [role="button"][class*="btn_POP_Confirm"]'
@@ -1022,6 +1102,9 @@ function findNexacroNoticePopupCloseButtonInPage() {
 }
 
 async function closeAnyPopupsCore(page, { maxAttempts = 8 } = {}) {
+  // (신규, 사용자 요청) 설정에서 자동 팝업 닫기를 끄면 여기서 완전히 손을 뗀다 - Escape/Alt+End
+  // 키 입력과 좌표 클릭 등 화면에 개입하는 모든 동작을 이 한 지점에서 막는다.
+  if (!popupAutoCloseEnabled) return false;
   let closedAny = false;
   for (let i = 0; i < maxAttempts; i++) {
     // "다시 보지 않기"류 체크박스가 있으면 먼저 체크 - 실패해도(없어도) 무시하고 계속 진행.
@@ -1164,6 +1247,15 @@ function popupWatcherInitScript() {
   const hasFormInputs = (el) => [...el.querySelectorAll(
     'input:not([type="checkbox"]):not([readonly]):not([disabled]), select:not([disabled]), textarea:not([readonly]):not([disabled])'
   )].some(isVisible);
+  // (버그 수정, 사용자 재현: K-에듀파인 게시판 첨부파일 다운로드 창이 뜨자마자 사라짐) Nexacro가
+  // 첨부파일 다운로드 목록 창도 "noticePopup" 공용 템플릿으로 띄우는 것으로 보여, 파일 확장자가
+  // 보이는 컨테이너는 다운로드 창으로 보고 팝업 취급하지 않는다.
+  const EXT_RE = /\.(pdf|hwpx?|xlsx?|docx?|pptx?|zip|jpe?g|png|gif|txt|csv|bmp)(\s|["'\)\]]|$)/i;
+  const hasDownloadableFileEntries = (el) => [...el.querySelectorAll('*')].some((e) => {
+    if (!isVisible(e) || e.children.length > 2) return false;
+    const t = (e.textContent || '').trim();
+    return t.length < 200 && EXT_RE.test(t);
+  });
   const looksLikePopup = () => {
     // (버그 수정) 인증서 로그인 화면(#btnLgn/certPassword)이 떠 있는 동안은 절대 팝업으로
     // 취급하지 않는다 - 실측 확인: 비밀번호 타이핑 도중 이 감시가 로그인 모달의 "확인" 버튼을
@@ -1172,14 +1264,15 @@ function popupWatcherInitScript() {
     // 이 화면을 전담해서 처리하므로 여기서는 완전히 손을 뗀다.
     if (isLoginOverlayVisible()) return false;
     const dialogs = [...document.querySelectorAll('.cl-dialog, [role="dialog"]')].filter(isVisible);
-    if (dialogs.some((d) => !hasFormInputs(d))) return true;
+    if (dialogs.some((d) => !hasFormInputs(d) && !hasDownloadableFileEntries(d))) return true;
     // (버그 수정 4 - 실측 확인) K-에듀파인은 나이스/G-ONE의 cl-dialog 프레임워크가 아니라
     // Nexacro 프레임워크를 쓴다. 공지사항 팝업은 id에 "noticePopup"이 포함된 ChildFrame으로
     // 렌더링되며(예: mainframe.MainVFrameSet.SubHFrameSet.MainFrame.noticePopup0), 사용자가
     // 실제 outerHTML을 확인해줘서 알아냈다. 실제 업무 확인창과 구조가 겹칠 위험을 줄이기 위해
     // "noticePopup" id 패턴을 가진 컨테이너만 팝업으로 인식한다(findNexacroNoticePopupCloseButtonInPage와
     // 동일한 스코프 제한).
-    const nexacroNotices = [...document.querySelectorAll('[id*="noticePopup"]')].filter(isVisible);
+    const nexacroNotices = [...document.querySelectorAll('[id*="noticePopup"]')]
+      .filter((e) => isVisible(e) && !hasDownloadableFileEntries(e));
     if (nexacroNotices.length > 0) return true;
     const texts = ['닫기', '확인', '1주일동안 열지 않기', '오늘 하루 보지 않기', '오늘 하루 이상 열지 않기'];
     return [...document.querySelectorAll('*')].some((e) => {
@@ -1377,7 +1470,19 @@ async function ensureLoggedInOnPortalHome(page, portalUrl) {
     return false;
   }
 
-  await waitForPortalMenu(page);
+  // (버그 수정, 사용자 재현: 밤새 켜뒀더니 idp1-goe.neis.go.kr의 SAML 로그아웃/중계 페이지
+  // (singleLogout.jsp 등)에서 멈춘 빈 탭이 수십 개 쌓임) 여기서 예전엔 waitForPortalMenu의
+  // 성공 여부를 무시하고 무조건 true를 반환했다 - isOnLoginPage()가 bpm_lgn_lg00_001만
+  // 검사하다 보니, SSO 중계 서버(idp1-goe.neis.go.kr)의 다른 페이지에 멈춰버린 경우는
+  // "로그인 페이지 아님"으로 오판해 로그인 성공으로 취급해버렸다. 그 결과 호출 쪽
+  // (checkPortalDashboard/launchService)의 "reachedHome 실패 시 새로 연 탭 정리" 로직이
+  // 전혀 발동하지 못해, 다음 주기마다 이런 멈춘 탭이 하나씩 새로 쌓였다. 실제로 메뉴가
+  // 나타났는지 결과를 그대로 반환해 호출 쪽이 정확히 판단하고 정리할 수 있게 한다.
+  const menuReady = await waitForPortalMenu(page);
+  if (!menuReady) {
+    console.log('[PortalPet] 포털 홈 메뉴가 끝내 나타나지 않음 - 로그인 실패로 간주. url:', page.url());
+    return false;
+  }
   // 로그인 직후(콜드 스타트 포함) 첫 도착 시점이라 공지 팝업이 늦게 뜨는 레이스가 가장 흔하게
   // 나타나는 지점 중 하나 - 이후 메뉴 클릭을 가리지 않도록 몇 초간 지켜보며 닫는다.
   await closeAnyPopupsForAWhile(page);
@@ -2788,7 +2893,7 @@ async function findExistingPortalHomePage(context, subdomain, excludePage = null
     // 방치됐던 탭(로그인 화면 등으로 밀려나 있음) + 새로 연 탭, 둘 다 살아남아 포털 홈이 2개가
     // 됐다. 호스트가 맞으면 포기하지 않고 그 탭에서 포털 홈으로 다시 이동시켜(필요하면 재로그인
     // 포함, launchService의 로그인 로직과 별개로 이미 로그인된 세션이면 SSO로 바로 통과됨)
-    // 되살려본다 - 그래도 안 되면 이 탭은 넘기고 계속 다음 탭을 찾는다.
+    // 되살려본다 - 그래도 안 되면 이 탭은 닫고 계속 다음 탭을 찾는다(아래).
     console.log('[PortalPet] eduptl.kr 탭을 찾았지만 a.menuBtn이 바로 안 보임(idle 세션 만료 추정) - 포털 홈으로 다시 이동해 되살려봄:', p.url());
     const revived = await gotoWithRetry(p, buildPortalUrl(subdomain), { waitUntil: 'domcontentloaded' })
       .then(() => true)
@@ -2796,12 +2901,21 @@ async function findExistingPortalHomePage(context, subdomain, excludePage = null
         console.log('[PortalPet] 방치된 포털 홈 탭 되살리기 실패 - 이 탭은 포기하고 계속 찾음:', e.message);
         return false;
       });
-    if (!revived) continue;
-    const menuReadyAfterRevive = await p.waitForSelector('a.menuBtn', { timeout: 5000 }).then(() => true).catch(() => false);
+    const menuReadyAfterRevive = revived
+      && await p.waitForSelector('a.menuBtn', { timeout: 5000 }).then(() => true).catch(() => false);
     if (menuReadyAfterRevive) {
       console.log('[PortalPet] 방치된 포털 홈 탭을 되살림 - 재사용');
       return p;
     }
+    // (버그 수정, 사용자 재현: 밤새 켜뒀더니 탭이 계속 늘어남) 예전엔 되살리기 실패해도 이 탭을
+    // 그냥 넘기기만(continue) 했다 - 하지만 이 탭은 이미 mainServiceTabs에 등록돼 있어서
+    // closeExtraPages가 "leftover"로 오인해 자동으로 닫는 일도 없다. 즉 자동 확인(결재 현황 등)
+    // 주기마다(예: 1시간마다) 되살리기에 실패한 탭이 하나씩 그대로 쌓이기만 했다 - 되살리기가
+    // 확실히 실패했다면(자동으로 연 탭이 더는 쓸 수 없는 상태로 확정됐다면) 여기서 바로 닫아
+    // 다음 주기까지 남기지 않는다. page.close()가 트리거하는 'close' 리스너가 mainServiceTabs/
+    // sharedPage 정리는 알아서 해준다.
+    console.log('[PortalPet] 되살리기 실패한 leftover 포털 홈 탭을 정리함(탭 누적 방지):', p.url());
+    await p.close().catch((e) => console.log('[PortalPet] leftover 포털 홈 탭 닫기 실패(non-fatal):', e.message));
   }
   return null;
 }
@@ -2864,6 +2978,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // 플래그에 반영한다 - 기본값 true(켬), 명시적으로 false를 넘겼을 때만 끈다.
   minimizeMessengerOnLaunchEnabled = options.minimizeMessengerOnLaunch !== false;
   certUserNameToSelect = (options.certUserName || '').trim();
+  popupAutoCloseEnabled = options.popupAutoCloseEnabled !== false;
   const { context } = await getContext(browserProfile, subdomain, browserChannel); // 사용자 클릭 결과는 항상 bringToFront로 보여주므로 isNew 여부와 무관
 
   const targetSystem = SERVICE_SYSTEM[serviceKey] || null;
@@ -3202,6 +3317,7 @@ function extractPortalDashboardCounts() {
 async function checkPortalDashboard(subdomain, password, browserProfile = null, browserChannel = 'chrome', options = {}) {
   console.log(`[PortalPet] checkPortalDashboard(${subdomain}, ${browserChannel})`);
   certUserNameToSelect = (options.certUserName || '').trim();
+  popupAutoCloseEnabled = options.popupAutoCloseEnabled !== false;
   const { context, isNew } = await getContext(browserProfile, subdomain, browserChannel);
 
   // (신규, 사용자 요청) shouldOpenNewTabFor는 "마지막으로 쓴 탭"(sharedPage)만 보고 판단하는데,

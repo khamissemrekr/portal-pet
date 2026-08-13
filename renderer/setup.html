@@ -222,6 +222,17 @@
   </label>
   <div class="note">메신저 창이 화면 앞으로 튀어나오지 않도록, 실행되면 바로 최소화합니다.</div>
 
+  <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+    <input id="popupAutoCloseEnabled" type="checkbox" checked style="width:auto; margin-top:0;" />
+    <span>공지 팝업 자동 닫기</span>
+  </label>
+  <div class="note">
+    나이스/K-에듀파인 등에서 뜨는 공지·안내 팝업을 자동으로 감지해 닫아줍니다. <b style="color:#e0b050;">이 기능을 켜두면
+    일부 화면(예: 게시판 첨부파일 다운로드 창)에서 팝업으로 잘못 인식돼 파일 다운로드가 안 되는
+    문제가 발생할 수 있습니다.</b> 다운로드가 잘 안 될 때는 꺼서 확인해 보세요 - 끄면 팝업이 떠도
+    직접 닫아야 합니다.
+  </div>
+
   <button id="saveBtn">저장</button>
 
   <script>
@@ -431,6 +442,7 @@
       document.getElementById('autoLaunchMessenger').checked = !!config?.autoLaunchMessenger;
       document.getElementById('autoLaunchSchedule').checked = !!config?.autoLaunchSchedule;
       document.getElementById('minimizeMessengerOnLaunch').checked = config?.minimizeMessengerOnLaunch !== false;
+      document.getElementById('popupAutoCloseEnabled').checked = config?.popupAutoCloseEnabled !== false;
       dashboardAutoRefreshInput.checked = config?.dashboardAutoRefresh !== false;
       dashboardMinutesInput.value = String(config?.dashboardRefreshMinutes ?? 5);
       syncDashboardMinutesEnabled();
@@ -485,6 +497,7 @@
       const autoLaunchMessenger = document.getElementById('autoLaunchMessenger').checked;
       const autoLaunchSchedule = document.getElementById('autoLaunchSchedule').checked;
       const minimizeMessengerOnLaunch = document.getElementById('minimizeMessengerOnLaunch').checked;
+      const popupAutoCloseEnabled = document.getElementById('popupAutoCloseEnabled').checked;
       const panelOpacity = Number(opacityInput.value) / 100;
       const dashboardAutoRefresh = dashboardAutoRefreshInput.checked;
       const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
@@ -512,7 +525,7 @@
         fieldTripCheckTime1, fieldTripCheckTime2,
         fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
         panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
-        hiddenMenuItems,
+        hiddenMenuItems, popupAutoCloseEnabled,
       });
     });
   </script>
