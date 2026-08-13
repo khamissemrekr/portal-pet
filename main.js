@@ -965,6 +965,11 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   startDialogSuppressor(); // K-에듀파인 WXSClient의 "웹 페이지 메시지" 확인창 자동 취소
+  // (신규, 사용자 요청: "지난번 패치 때 업데이트 나온 줄 몰랐다") 프로그램 정보 창에서 직접
+  // 눌러야만 확인되던 새 버전 확인을 시작할 때 한 번 조용히(showResultDialog:false - 최신
+  // 버전이면 아무 알림도 안 띄우고, 새 버전이 있을 때만 자동으로 안내창을 띄움) 실행한다.
+  // 네트워크 확인이라 다른 시작 작업을 막지 않도록 await하지 않는다.
+  checkForUpdates(false).catch((e) => console.error('[PortalPet] 시작 시 새 버전 확인 실패(non-fatal):', e));
 
   const config = credentialStore.loadConfig();
   if (!config.encryptedPasswordBase64) {
