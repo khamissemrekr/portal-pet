@@ -2808,7 +2808,9 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
     // 링크를 다시 읽어 한 번 더 시도한다.
     if (!(await isOnSystem(target, 'gone', subdomain))) {
       console.log('[PortalPet] G-ONE 진입 실패로 보임(SSO 오류 페이지 추정) - 잠시 후 한 번 더 시도:', target.url());
-      await target.waitForTimeout(2000);
+      // (버그 수정, 사용자 재현: 2초 대기 후 재시도해도 여전히 실패) 로그인 직후 SSO 서버가
+      // 세션을 완전히 반영하기까지 2초로는 부족한 경우가 있는 것으로 보여 4초로 늘린다.
+      await target.waitForTimeout(4000);
       const retryGoneUrl = await readPortalMenuUrl(page, 'G-ONE');
       if (retryGoneUrl) {
         await gotoWithRetry(target, retryGoneUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] G-ONE 재시도 goto 실패:', e.message));
