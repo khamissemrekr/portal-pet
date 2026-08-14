@@ -1,6 +1,6 @@
 {
   "name": "portal-pet",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "업무포털 원클릭 접속",
   "author": "PortalPet",
   "main": "main.js",
