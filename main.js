@@ -453,6 +453,33 @@ async function checkForUpdates(showResultDialog = false, parentWindow = null) {
   }
 }
 
+/**
+ * (신규, 사용자 재현: 시작 시 자동 확인이 net::ERR_TIMED_OUT로 조용히 실패해서 새 버전이 있었는데도
+ * 아무 알림도 못 받음) 앱을 막 켰을 때는 네트워크가 아직 완전히 붙지 않았을 수 있다 - 시작 시
+ * 조용한(showResultDialog:false) 확인이 오류로 끝나면 30초 뒤 딱 한 번만 더 조용히 재시도한다.
+ * 성공(최신/새 버전 발견)하면 그걸로 끝, 재시도까지 또 실패하면 그때는 정말 포기하고 로그만 남긴다
+ * (매번 팝업을 띄우면 사소한 네트워크 문제로도 계속 거슬리므로 여전히 조용히 처리).
+ */
+function checkForUpdatesOnStartup() {
+  const onError = () => { cleanup(); scheduleRetry(); };
+  const onSettled = () => cleanup();
+  function cleanup() {
+    autoUpdater.removeListener('error', onError);
+    autoUpdater.removeListener('update-available', onSettled);
+    autoUpdater.removeListener('update-not-available', onSettled);
+  }
+  function scheduleRetry() {
+    console.log('[PortalPet] 시작 시 새 버전 확인 실패 - 30초 후 한 번 더 조용히 재시도');
+    setTimeout(() => {
+      checkForUpdates(false).catch((e) => console.error('[PortalPet] 시작 시 새 버전 확인 재시도 실패(non-fatal):', e));
+    }, 30000);
+  }
+  autoUpdater.once('error', onError);
+  autoUpdater.once('update-available', onSettled);
+  autoUpdater.once('update-not-available', onSettled);
+  checkForUpdates(false).catch((e) => console.error('[PortalPet] 시작 시 새 버전 확인 실패(non-fatal):', e));
+}
+
 // (신규, 사용자 요청) 나이스 출결관리 등에서 쓸 상단 "역할" 탭 이름은 학교/선생님마다 다를 수
 // 있어(부서장(교무기획부)처럼 특정 부서명이 붙기도 함) 설정에서 고르게 한다. 흔한 것(학급담임/
 // 부서장) + 직접입력을 지원한다. 교과담임/교과전담/전담/동아리담임은 라디오 옵션에서 제외
@@ -968,8 +995,9 @@ app.whenReady().then(async () => {
   // (신규, 사용자 요청: "지난번 패치 때 업데이트 나온 줄 몰랐다") 프로그램 정보 창에서 직접
   // 눌러야만 확인되던 새 버전 확인을 시작할 때 한 번 조용히(showResultDialog:false - 최신
   // 버전이면 아무 알림도 안 띄우고, 새 버전이 있을 때만 자동으로 안내창을 띄움) 실행한다.
-  // 네트워크 확인이라 다른 시작 작업을 막지 않도록 await하지 않는다.
-  checkForUpdates(false).catch((e) => console.error('[PortalPet] 시작 시 새 버전 확인 실패(non-fatal):', e));
+  // 실패하면(네트워크 아직 안 붙음 등) 30초 뒤 한 번 더 조용히 재시도한다. 네트워크 확인이라
+  // 다른 시작 작업을 막지 않도록 await하지 않는다.
+  checkForUpdatesOnStartup();
 
   const config = credentialStore.loadConfig();
   if (!config.encryptedPasswordBase64) {
