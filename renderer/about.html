@@ -4,36 +4,84 @@
 <meta charset="UTF-8" />
 <title>PortalPet 정보</title>
 <style>
+  :root {
+    --text-primary: #1c2333;
+    --text-secondary: #64707e;
+    --accent-1: #5b8def;
+    --accent-2: #8b6bf2;
+    --glass-border: rgba(255, 255, 255, 0.75);
+    --page-bg: linear-gradient(135deg, #eef2ff 0%, #e6f0fb 45%, #fdf2ff 100%);
+    --card-bg: rgba(255, 255, 255, 0.55);
+    --card-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+  }
+  /* 다크 모드 - 설정 창에서 고른 테마(config.uiTheme)를 아래 스크립트가 <html data-theme>에
+     반영한다. 라이트와 레이아웃은 동일하고 색만 바뀐다. */
+  :root[data-theme="dark"] {
+    --text-primary: #eef1f6;
+    --text-secondary: #9aa5b4;
+    --accent-1: #6ea8fe;
+    --accent-2: #a78bfa;
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --page-bg: linear-gradient(135deg, #0f1220 0%, #161a2c 45%, #1d1730 100%);
+    --card-bg: rgba(255, 255, 255, 0.06);
+    --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+  html, body { height: 100%; }
   body {
-    font-family: 'Malgun Gothic', sans-serif; background: #1e1e22; color: #eee;
-    padding: 20px; text-align: center; box-sizing: border-box;
+    margin: 0;
+    font-family: 'Malgun Gothic', sans-serif; color: var(--text-primary);
+    box-sizing: border-box;
+    /* 은은한 파스텔 대각선 그라데이션 - 이 배경 위에 올라가는 글래스 카드의 backdrop-filter가
+       실제로 블러할 대상이 생겨서(불투명 창이라 가능) 유리 질감이 또렷하게 보인다. */
+    background: var(--page-bg);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .glass-card {
+    width: 100%; box-sizing: border-box;
+    background: var(--card-bg);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    box-shadow: var(--card-shadow);
+    padding: 24px 20px;
+    text-align: center;
   }
   .icon { font-size: 40px; line-height: 1; margin-bottom: 4px; }
   h2 { margin: 4px 0 2px; }
-  .version { color: #a0a0a6; font-size: 13px; margin-bottom: 18px; }
+  .version { color: var(--text-secondary); font-size: 13px; margin-bottom: 18px; }
   button {
-    width: 100%; padding: 10px; border: none; border-radius: 6px;
-    background: #4C8BF5; color: #fff; font-weight: 600; cursor: pointer; margin-top: 6px;
+    width: 100%; padding: 10px; border: none; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    color: #fff; font-weight: 600; cursor: pointer; margin-top: 6px;
+    box-shadow: 0 4px 12px rgba(91, 141, 239, 0.35);
   }
-  button:hover { background: #3a6fd8; }
-  button:disabled { opacity: 0.6; cursor: default; }
-  .contact { margin-top: 20px; font-size: 12px; color: #a0a0a6; }
-  .contact .email { color: #8ab4ff; cursor: pointer; text-decoration: underline; }
+  button:hover { filter: brightness(1.06); }
+  button:disabled { opacity: 0.6; cursor: default; box-shadow: none; }
+  .contact { margin-top: 20px; font-size: 12px; color: var(--text-secondary); }
+  .contact .email { color: var(--accent-1); cursor: pointer; text-decoration: underline; }
 </style>
 </head>
 <body>
-  <div class="icon">🐯</div>
-  <h2>PortalPet</h2>
-  <div class="version">버전 <span id="version">-</span></div>
+  <div class="glass-card">
+    <div class="icon">🐯</div>
+    <h2>PortalPet</h2>
+    <div class="version">버전 <span id="version">-</span></div>
 
-  <button id="checkBtn">새 버전 확인</button>
+    <button id="checkBtn">새 버전 확인</button>
 
-  <div class="contact">문의: <span id="contactEmail" class="email">khami@ssem.re.kr</span></div>
+    <div class="contact">문의: <span id="contactEmail" class="email">khami@ssem.re.kr</span></div>
+  </div>
 
   <script>
     async function init() {
-      const version = await window.portalPet.getAppVersion();
+      const [version, config] = await Promise.all([
+        window.portalPet.getAppVersion(),
+        window.portalPet.getConfig(),
+      ]);
       document.getElementById('version').textContent = version;
+      document.documentElement.dataset.theme = config?.uiTheme === 'dark' ? 'dark' : 'light';
     }
     init();
 

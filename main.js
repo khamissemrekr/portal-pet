@@ -212,8 +212,23 @@ function stopHoverWatch() {
 // Windows 시작 시 자동 실행 - 트레이 메뉴 체크박스와 설정 창 체크박스 둘 다 같은 OS 설정
 // (app.getLoginItemSettings)을 그대로 읽고 쓴다. 함수로 묶어서 개발 모드(npm start) 우회
 // 로직(아래 주석)을 한 곳에서만 관리한다.
+function devAutoStartArgs() {
+  return [path.resolve(process.argv[1] || '.')];
+}
 function getAutoStartOnLogin() {
-  return app.getLoginItemSettings().openAtLogin;
+  const settings = app.getLoginItemSettings();
+  if (app.isPackaged) return settings.openAtLogin;
+  // (버그 수정) 개발 모드는 아래 setAutoStartOnLogin에서 path+args를 커스텀으로 등록하는데,
+  // Windows에서 Electron의 openAtLogin 값은 "인자 없는 기본 등록"만 true로 쳐준다(실측 확인:
+  // 인자를 붙여 등록해도 executableWillLaunchAtLogin/launchItems엔 정상으로 잡히지만 openAtLogin은
+  // 항상 false) - 그래서 트레이 메뉴를 아무리 새로고침해도 개발 모드에서는 체크 표시가 절대 안
+  // 켜져 있었다. openAtLogin 대신 launchItems에서 우리가 등록한 path+args와 정확히 일치하는
+  // 항목이 있는지 직접 확인한다.
+  const expectedArgs = devAutoStartArgs();
+  return (settings.launchItems || []).some((item) => item.enabled
+    && item.path === process.execPath
+    && Array.isArray(item.args) && item.args.length === expectedArgs.length
+    && item.args.every((a, i) => a === expectedArgs[i]));
 }
 function setAutoStartOnLogin(enabled) {
   // 개발 모드(npm start)에서 이 옵션을 켜면 path가 electron.exe만 가리켜서(앱 경로 없이) 부팅 시
@@ -221,18 +236,22 @@ function setAutoStartOnLogin(enabled) {
   // 쓰고, 개발 모드에서는 실제 앱 폴더를 args로 명시해 같은 문제가 재발하지 않게 한다.
   const settings = app.isPackaged
     ? { openAtLogin: enabled }
-    : { openAtLogin: enabled, path: process.execPath, args: [path.resolve(process.argv[1] || '.')] };
+    : { openAtLogin: enabled, path: process.execPath, args: devAutoStartArgs() };
   app.setLoginItemSettings(settings);
 }
 
 // ===== 트레이 =====
-function createTray() {
-  tray = new Tray(path.join(__dirname, 'theme', 'tray-icon.png'));
-  // (수정) 구분선이 너무 많다는 사용자 지적으로 3그룹(핵심 조작 / 부가 기능·정보 / 종료)으로
-  // 정리 - 구분선 4개(개발 모드 기준)에서 2개로 줄었다. '설정' 라벨도 예전엔 "설정 (지역/
-  // 비밀번호)"였는데, 이제 메뉴 패널 하단 톱니 아이콘으로도 설정을 열 수 있어 괄호 설명이
-  // 중복이라 단순화했다.
-  const menu = Menu.buildFromTemplate([
+// (수정) 구분선이 너무 많다는 사용자 지적으로 3그룹(핵심 조작 / 부가 기능·정보 / 종료)으로
+// 정리 - 구분선 4개(개발 모드 기준)에서 2개로 줄었다. '설정' 라벨도 예전엔 "설정 (지역/
+// 비밀번호)"였는데, 이제 메뉴 패널 하단 톱니 아이콘으로도 설정을 열 수 있어 괄호 설명이
+// 중복이라 단순화했다.
+//
+// (수정) "Windows 시작 시 자동 실행" 체크박스는 Menu.buildFromTemplate 시점의 checked 값이
+// 고정되어버려서, 설정 창에서 이 옵션을 바꿔도(save-setup) 트레이 메뉴를 다시 만들기 전까지는
+// 체크 표시가 갱신되지 않는 문제가 있었다. 메뉴 빌드를 별도 함수로 빼서 설정 창 저장 직후에도
+// refreshTrayMenu()로 다시 그릴 수 있게 한다.
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
     { label: '설정', click: openSetupWindow },
     { label: '펼치기/접기', click: togglePanel },
     // (수정) 사용자 요청으로 당장은 필요 없어서 숨김 - enterMiniMode/exitMiniMode 등 기능 코드는 그대로 둔다.
@@ -259,8 +278,17 @@ function createTray() {
     { type: 'separator' },
     { label: '종료', click: () => app.quit() },
   ]);
+}
+
+// 설정 창에서 OS 자체 설정(자동 실행 등)이 바뀐 뒤 트레이 메뉴의 체크 표시를 최신 상태로 다시 그린다.
+function refreshTrayMenu() {
+  if (tray) tray.setContextMenu(buildTrayMenu());
+}
+
+function createTray() {
+  tray = new Tray(path.join(__dirname, 'theme', 'tray-icon.png'));
   tray.setToolTip('PortalPet - 원클릭 업무포털');
-  tray.setContextMenu(menu);
+  tray.setContextMenu(buildTrayMenu());
   tray.on('click', togglePanel);
 }
 
@@ -325,10 +353,11 @@ ipcMain.on('move-pet-by', (_evt, dx, dy) => {
 // ===== 최초 설정(지역 + 인증서 비밀번호) =====
 function openSetupWindow() {
   if (setupWin) { setupWin.focus(); return; }
-  // (수정) 항목이 많아서(브라우저/프로필/투명도/자동확인/자주 가는 사이트/자동 실행 등) 360x460으론
-  // 좁고 잘려 보인다는 사용자 피드백 - 가로/세로를 넉넉하게 키움.
+  // (수정) 항목이 많아서 한 화면에 다 몰아두면 복잡하다는 사용자 피드백 - 계정/브라우저/화면/
+  // 자동확인/시작 5개 탭으로 나눴다. 탭당 내용이 이전 단일 목록보다 짧아져 세로 폭을 줄였다
+  // (탭 내부 콘텐츠는 자체 스크롤 영역이라 이 높이를 넘어도 잘리지 않는다).
   setupWin = new BrowserWindow({
-    width: 460, height: 720, resizable: false,
+    width: 460, height: 620, resizable: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true },
   });
   setupWin.setMenuBarVisibility(false);
@@ -530,10 +559,13 @@ ipcMain.handle('save-setup', (_evt, {
   fieldTripCheckTime1, fieldTripCheckTime2,
   fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
-  neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems, popupAutoCloseEnabled,
+  neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems, popupAutoCloseEnabled, uiTheme,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
+  // 트레이 메뉴의 체크 표시는 메뉴를 새로 만들 때만 갱신되므로, 설정 창에서 바꾼 값을
+  // 트레이 메뉴에도 바로 반영되게 다시 그린다.
+  refreshTrayMenu();
 
   const previous = credentialStore.loadConfig();
   // 비밀번호 칸을 비워두고 저장하면(지역/프로필만 바꾸는 경우) 기존 저장값을 그대로 둔다.
@@ -598,6 +630,7 @@ ipcMain.handle('save-setup', (_evt, {
     // 공지 팝업이 화면을 가려도 사용자가 직접 닫아야 하지만, 자동 닫기 로직이 다른 화면 요소를
     // 잘못 건드릴 가능성 자체를 완전히 차단할 수 있다.
     popupAutoCloseEnabled: popupAutoCloseEnabled !== false,
+    uiTheme: uiTheme === 'dark' ? 'dark' : 'light', // 화면 테마(라이트/다크) - 설정 창/정보 창/캐릭터 메뉴 모두 이 값을 따른다.
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();

@@ -365,10 +365,16 @@ function applyPanelOpacity(config) {
   document.documentElement.style.setProperty('--panel-alpha', String(alpha));
 }
 
+// 화면 테마(라이트/다크) - 설정 창에서 고른 값을 캐릭터 메뉴에도 그대로 반영한다.
+function applyTheme(config) {
+  document.documentElement.dataset.theme = config?.uiTheme === 'dark' ? 'dark' : 'light';
+}
+
 async function loadCustomLinks() {
   const config = await window.portalPet.getConfig();
   renderCustomLinks(config?.customLinks);
   applyPanelOpacity(config);
+  applyTheme(config);
   applyMenuVisibility(config);
   resizePanelToContent(); // 설정 변경으로 표시되는 항목이 바뀌면 창 높이도 다시 맞춘다.
 }

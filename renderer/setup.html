@@ -4,238 +4,384 @@
 <meta charset="UTF-8" />
 <title>PortalPet 설정</title>
 <style>
-  body { font-family: 'Malgun Gothic', sans-serif; background: #1e1e22; color: #eee; padding: 16px; }
-  h3 { margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #fff; }
-  label { display: block; margin-top: 12px; font-size: 13px; color: #ccc; }
+  :root {
+    --text-primary: #1c2333;
+    --text-secondary: #5b6472;
+    --accent-1: #5b8def;
+    --accent-2: #8b6bf2;
+    --glass-border: rgba(255, 255, 255, 0.7);
+    --field-bg: rgba(255, 255, 255, 0.55);
+    --danger: #d64550;
+    --danger-bg: rgba(214, 69, 80, 0.12);
+    --page-bg: linear-gradient(150deg, #eef2ff 0%, #e6f0fb 45%, #fdf2ff 100%);
+    --card-bg: rgba(255, 255, 255, 0.5);
+    --card-shadow: 0 8px 32px rgba(31, 38, 135, 0.12);
+    --warn-text: #8a5a00;
+    --warn-bg: rgba(230, 168, 0, 0.15);
+    --warn-border: rgba(230, 168, 0, 0.35);
+    --scrollbar-thumb: rgba(0, 0, 0, 0.25);
+  }
+  /* 다크 모드 - "화면" 탭의 테마 라디오를 고르면 즉시 미리보기로 반영되고, 저장하면 설정
+     창·정보 창·캐릭터 메뉴 모두 이 값을 따른다(config.uiTheme). 라이트와 레이아웃은 동일하고
+     색 변수만 바뀐다. */
+  :root[data-theme="dark"] {
+    --text-primary: #eef1f6;
+    --text-secondary: #9aa5b4;
+    --accent-1: #6ea8fe;
+    --accent-2: #a78bfa;
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --field-bg: rgba(255, 255, 255, 0.08);
+    --danger: #ff9a92;
+    --danger-bg: rgba(234, 67, 53, 0.22);
+    --page-bg: linear-gradient(150deg, #0f1220 0%, #161a2c 45%, #1d1730 100%);
+    --card-bg: rgba(255, 255, 255, 0.06);
+    --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    --warn-text: #ffcf66;
+    --warn-bg: rgba(255, 193, 7, 0.15);
+    --warn-border: rgba(255, 193, 7, 0.35);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.25);
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; box-sizing: border-box;
+    font-family: 'Malgun Gothic', sans-serif; color: var(--text-primary);
+    /* 은은한 파스텔 대각선 그라데이션 - 불투명 창이라 아래 글래스 카드의 backdrop-filter가
+       이 배경을 실제로 블러해 유리 질감이 또렷하게 보인다. */
+    background: var(--page-bg);
+    padding: 16px;
+  }
+  .glass-card {
+    box-sizing: border-box;
+    background: var(--card-bg);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    box-shadow: var(--card-shadow);
+    padding: 18px 20px 20px;
+    display: flex; flex-direction: column;
+  }
+  .theme-toggle { display: flex; gap: 12px; margin-top: 6px; }
+  .theme-toggle label { display: flex; align-items: center; gap: 4px; margin: 0; width: auto; font-size: 13px; color: var(--text-primary); }
+  .theme-toggle input { width: auto; margin-top: 0; }
+  .warn-box { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 6px 8px; }
+  .warn-text { color: var(--warn-text); }
+  h3 { margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--text-primary); }
+  label { display: block; margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
   /* 여러 필드를 묶는 섹션의 제목 - 그냥 필드 라벨(13px/회색)과 구분되도록 더 크고 밝게, 위쪽에
      구분선을 둔다. */
   .section-title {
-    display: block; margin-top: 22px; padding-top: 14px; border-top: 1px solid #3a3a40;
-    font-size: 14.5px; font-weight: 700; color: #fff;
+    display: block; margin-top: 22px; padding-top: 14px; border-top: 1px solid rgba(0, 0, 0, 0.08);
+    font-size: 14.5px; font-weight: 700; color: var(--text-primary);
   }
-  .menu-group-title { font-size: 12px; font-weight: 600; color: #8fb4f5; margin-top: 10px; }
+  .menu-group-title { font-size: 12px; font-weight: 700; color: var(--accent-1); margin-top: 10px; }
   .menu-group-title:first-child { margin-top: 0; }
-  input, select { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border-radius: 6px; border: 1px solid #555; background: #2a2a2e; color: #fff; }
+  input, select {
+    width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border-radius: 8px;
+    border: 1px solid var(--glass-border); background: var(--field-bg); color: var(--text-primary);
+  }
+  input:focus, select:focus { outline: 2px solid rgba(91, 141, 239, 0.45); outline-offset: 1px; }
   input[type="range"] { padding: 4px 0; border: none; background: transparent; }
-  button { margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 6px; background: #4C8BF5; color: #fff; font-weight: 600; cursor: pointer; }
-  button:hover { background: #3a6fd8; }
-  .note { font-size: 11px; color: #999; margin-top: 6px; }
+  button {
+    margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2)); color: #fff; font-weight: 600; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(91, 141, 239, 0.35);
+  }
+  button:hover { filter: brightness(1.06); }
+  .note { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
   .link-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }
   .link-row .link-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .link-row .link-url { flex: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; }
-  .link-row button { width: auto; margin-top: 0; padding: 2px 8px; flex-shrink: 0; background: #5a3a3a; }
-  .link-row button:hover { background: #7a4a4a; }
+  .link-row .link-url { flex: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+  .link-row button { width: auto; margin-top: 0; padding: 2px 8px; flex-shrink: 0; background: var(--danger-bg); color: var(--danger); box-shadow: none; }
+  .link-row button:hover { background: rgba(214, 69, 80, 0.2); filter: none; }
+
+  /* ===== 카테고리 탭 - 항목이 많아서(사용자 피드백) 한 화면에 다 몰아두지 않고 계정/브라우저/
+     화면/자동확인/시작 5개 프레임으로 나눈다. 탭을 눌러도 저장 버튼은 항상 카드 하단에 고정. */
+  .tabs { display: flex; gap: 6px; margin-top: 14px; }
+  .tab-btn {
+    flex: 1 1 0; min-width: 0; margin-top: 0;
+    padding: 8px 2px; border: 1px solid var(--glass-border); border-radius: 10px;
+    background: var(--field-bg); color: var(--text-secondary);
+    font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: none;
+  }
+  .tab-btn:hover { filter: none; color: var(--text-primary); }
+  .tab-btn.active {
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    color: #fff; border-color: transparent;
+    box-shadow: 0 4px 12px rgba(91, 141, 239, 0.35);
+  }
+  .tab-content {
+    margin-top: 14px; max-height: 460px; overflow-y: auto; overflow-x: hidden;
+    padding-right: 6px; margin-right: -6px;
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .tab-panel > label:first-child,
+  .tab-panel > .section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  #menuVisibilityList {
+    margin-top: 6px; max-height: 190px; overflow-y: auto;
+    border: 1px solid var(--glass-border); border-radius: 10px; padding: 8px 10px;
+    background: var(--field-bg);
+  }
+  .tab-content::-webkit-scrollbar, #menuVisibilityList::-webkit-scrollbar { width: 6px; }
+  .tab-content::-webkit-scrollbar-thumb, #menuVisibilityList::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb); border-radius: 3px;
+  }
 </style>
 </head>
 <body>
+  <div class="glass-card">
   <h3>업무포털 설정</h3>
 
-  <!-- 여러 지역 선택 기능은 우선 숨김 - 지금은 경기도만 지원. select는 기존 로직(저장/로드) 유지를
-       위해 DOM에는 남겨두고 화면에서만 숨긴 뒤 항상 "경기"로 고정한다. -->
-  <div id="regionPickerWrap" style="display:none">
-    <label>지역
-      <select id="region">
-        <option value="서울">서울</option>
-        <option value="경기" selected>경기</option>
-        <option value="경남">경남</option>
-        <option value="부산">부산</option>
-        <option value="대구">대구</option>
-        <option value="대전">대전</option>
-        <option value="경북">경북</option>
-        <option value="세종">세종</option>
-        <option value="울산">울산</option>
-        <option value="인천">인천</option>
-        <option value="광주">광주</option>
-        <option value="전남">전남</option>
-        <option value="전북">전북</option>
-        <option value="충남">충남</option>
-        <option value="충북">충북</option>
-        <option value="강원">강원</option>
-        <option value="제주">제주</option>
-        <option value="__custom__">직접 입력…</option>
-      </select>
-    </label>
-
-    <label id="customWrap" style="display:none">서브도메인 (예: goe)
-      <input id="customSubdomain" placeholder="goe" />
-    </label>
-  </div>
-  <div class="note" style="margin-top:12px;">지역: <b style="color:#fff;">경기</b> (다른 지역 선택 기능은 현재 숨겨져 있습니다)</div>
-
-  <label>인증서 사용자 이름 (선택)
-    <input id="certUserName" />
-  </label>
-  <div class="note">
-    이 PC에 인증서가 여러 개 등록돼 있을 때만 입력하세요. 이름만 입력하면 됩니다(앞뒤에 붙는
-    숫자는 몰라도 됩니다) - 인증서 선택 목록에서 이 이름이 포함된 인증서를 먼저 골라 선택한 뒤
-    비밀번호를 입력합니다. 인증서가 하나뿐이면 비워두면 됩니다.
+  <div class="tabs">
+    <button type="button" class="tab-btn" data-tab="account">계정</button>
+    <button type="button" class="tab-btn" data-tab="browser">브라우저</button>
+    <button type="button" class="tab-btn" data-tab="appearance">화면</button>
+    <button type="button" class="tab-btn" data-tab="autocheck">자동확인</button>
+    <button type="button" class="tab-btn" data-tab="startup">시작</button>
   </div>
 
-  <label>인증서 비밀번호
-    <div style="display:flex; gap:6px;">
-      <input id="password" type="password" style="flex:1;" />
-      <button id="deletePasswordBtn" type="button" style="width:auto; margin-top:0; padding:0 10px; flex-shrink:0; background:#5a3a3a;">삭제</button>
+  <div class="tab-content">
+    <!-- ===== 계정 / 로그인 ===== -->
+    <div class="tab-panel" data-tab="account">
+      <!-- 여러 지역 선택 기능은 우선 숨김 - 지금은 경기도만 지원. select는 기존 로직(저장/로드)
+           유지를 위해 DOM에는 남겨두고 화면에서만 숨긴 뒤 항상 "경기"로 고정한다. -->
+      <div id="regionPickerWrap" style="display:none">
+        <label>지역
+          <select id="region">
+            <option value="서울">서울</option>
+            <option value="경기" selected>경기</option>
+            <option value="경남">경남</option>
+            <option value="부산">부산</option>
+            <option value="대구">대구</option>
+            <option value="대전">대전</option>
+            <option value="경북">경북</option>
+            <option value="세종">세종</option>
+            <option value="울산">울산</option>
+            <option value="인천">인천</option>
+            <option value="광주">광주</option>
+            <option value="전남">전남</option>
+            <option value="전북">전북</option>
+            <option value="충남">충남</option>
+            <option value="충북">충북</option>
+            <option value="강원">강원</option>
+            <option value="제주">제주</option>
+            <option value="__custom__">직접 입력…</option>
+          </select>
+        </label>
+
+        <label id="customWrap" style="display:none">서브도메인 (예: goe)
+          <input id="customSubdomain" placeholder="goe" />
+        </label>
+      </div>
+      <div class="note">지역: <b style="color:var(--text-primary);">경기</b> (다른 지역 선택 기능은 현재 숨겨져 있습니다)</div>
+
+      <label>인증서 사용자 이름 (선택)
+        <input id="certUserName" />
+      </label>
+      <div class="note">
+        이 PC에 인증서가 여러 개 등록돼 있을 때만 입력하세요. 이름만 입력하면 됩니다(앞뒤에 붙는
+        숫자는 몰라도 됩니다) - 인증서 선택 목록에서 이 이름이 포함된 인증서를 먼저 골라 선택한 뒤
+        비밀번호를 입력합니다. 인증서가 하나뿐이면 비워두면 됩니다.
+      </div>
+
+      <label>인증서 비밀번호
+        <div style="display:flex; gap:6px;">
+          <input id="password" type="password" style="flex:1;" />
+          <button id="deletePasswordBtn" type="button" style="width:auto; margin-top:0; padding:0 10px; flex-shrink:0; background:var(--danger-bg); color:var(--danger); box-shadow:none;">삭제</button>
+        </div>
+      </label>
+      <div class="note">이 PC의 현재 Windows 계정에서만 복호화되도록 암호화되어 저장됩니다(Electron safeStorage).</div>
+
+      <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+        <input id="autoLogin" type="checkbox" checked style="width:auto; margin-top:0;" />
+        <span>자동 로그인 (끄면 인증서 창에서 비밀번호를 직접 입력해야 합니다)</span>
+      </label>
+
+      <label class="section-title">나이스 역할 (출결관리 등에서 사용)</label>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px;">
+        <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
+          <input type="radio" name="neisRoleMode" value="학급담임" style="width:auto; margin-top:0;" /> 학급담임
+        </label>
+        <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
+          <input type="radio" name="neisRoleMode" value="부서장" style="width:auto; margin-top:0;" /> 부서장
+        </label>
+        <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
+          <input type="radio" name="neisRoleMode" value="custom" style="width:auto; margin-top:0;" /> 직접입력
+        </label>
+      </div>
+      <label id="neisRoleCustomWrap" style="display:none">역할 탭 이름
+        <input id="neisRoleCustomText" placeholder="예: 동아리담임" />
+      </label>
+      <div class="note">
+        나이스 상단 "역할" 탭 이름의 앞부분과 일치하면 찾아집니다(예: "부서장"만 입력해도 "부서장(교무기획부)"
+        탭을 찾습니다). 동아리담임 등 목록에 없는 역할은 "직접입력"으로 정확한 탭 이름을 넣어주세요.
+      </div>
     </div>
-  </label>
-  <div class="note">이 PC의 현재 Windows 계정에서만 복호화되도록 암호화되어 저장됩니다(Electron safeStorage).</div>
 
-  <label style="display:flex; align-items:center; gap:8px; margin-top:12px;">
-    <input id="autoLogin" type="checkbox" checked style="width:auto; margin-top:0;" />
-    <span>자동 로그인 (끄면 인증서 창에서 비밀번호를 직접 입력해야 합니다)</span>
-  </label>
+    <!-- ===== 브라우저 ===== -->
+    <div class="tab-panel" data-tab="browser">
+      <label>브라우저
+        <select id="browserChannel">
+          <option value="chrome">Chrome</option>
+          <option value="msedge">Edge</option>
+        </select>
+      </label>
+      <div class="note">
+        이 PC에 설치된 크롬 또는 엣지를 그대로 실행해서 사용합니다(둘 다 크로미움 기반). 인증서 로그인에
+        쓰는 보안프로그램이 그 브라우저에 아직 설치돼 있지 않다면, 처음 실행 시 설치 안내가 뜰 수 있습니다.
+      </div>
+      <!-- (수정) 엣지는 크롬보다 테스트가 덜 됐고, 인증서 관련 보안프로그램이 엣지에 따로 설치/등록돼
+           있지 않으면 로그인 자체가 막힐 수 있다(실측 확인) - 엣지 선택 시에만 강조 안내를 보여준다. -->
+      <div id="edgeNote" class="note warn-box warn-text" style="display:none;">
+        ⚠ 엣지는 크롬보다 테스트가 적어 인증서 로그인이 처음엔 안 될 수 있습니다. 엣지를 직접 열어
+        나이스나 K-에듀파인에 한 번 수동으로 로그인해서 필요한 보안프로그램 설치를 먼저 마쳐두면
+        이후 PortalPet에서도 정상 동작합니다. 계속 안 되면 크롬 사용을 권장합니다.
+      </div>
 
-  <label>브라우저
-    <select id="browserChannel">
-      <option value="chrome">Chrome</option>
-      <option value="msedge">Edge</option>
-    </select>
-  </label>
-  <div class="note">
-    이 PC에 설치된 크롬 또는 엣지를 그대로 실행해서 사용합니다(둘 다 크로미움 기반). 인증서 로그인에
-    쓰는 보안프로그램이 그 브라우저에 아직 설치돼 있지 않다면, 처음 실행 시 설치 안내가 뜰 수 있습니다.
-  </div>
-  <!-- (수정) 엣지는 크롬보다 테스트가 덜 됐고, 인증서 관련 보안프로그램이 엣지에 따로 설치/등록돼
-       있지 않으면 로그인 자체가 막힐 수 있다(실측 확인) - 엣지 선택 시에만 강조 안내를 보여준다. -->
-  <div id="edgeNote" class="note" style="display:none; color:#e0b050;">
-    ⚠ 엣지는 크롬보다 테스트가 적어 인증서 로그인이 처음엔 안 될 수 있습니다. 엣지를 직접 열어
-    나이스나 K-에듀파인에 한 번 수동으로 로그인해서 필요한 보안프로그램 설치를 먼저 마쳐두면
-    이후 PortalPet에서도 정상 동작합니다. 계속 안 되면 크롬 사용을 권장합니다.
-  </div>
+      <label>브라우저 프로필
+        <select id="browserProfile">
+          <option value="__dedicated__">PortalPet 전용 프로필 (추천)</option>
+        </select>
+      </label>
+      <div class="note">
+        기존에 쓰던 프로필을 선택하면 로그인·보안프로그램 설정이 이미 돼 있어 첫 화면부터 매끄럽습니다.
+        단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
+      </div>
+    </div>
 
-  <label>브라우저 프로필
-    <select id="browserProfile">
-      <option value="__dedicated__">PortalPet 전용 프로필 (추천)</option>
-    </select>
-  </label>
-  <div class="note">
-    기존에 쓰던 프로필을 선택하면 로그인·보안프로그램 설정이 이미 돼 있어 첫 화면부터 매끄럽습니다.
-    단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
-  </div>
+    <!-- ===== 화면 / 메뉴 ===== -->
+    <div class="tab-panel" data-tab="appearance">
+      <label>화면 테마</label>
+      <div class="theme-toggle">
+        <label><input type="radio" name="uiTheme" value="light" /> 라이트</label>
+        <label><input type="radio" name="uiTheme" value="dark" /> 다크</label>
+      </div>
+      <div class="note">설정 창·정보 창·캐릭터 메뉴에 모두 적용됩니다.</div>
 
-  <label class="section-title">나이스 역할 (출결관리 등에서 사용)</label>
-  <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px;">
-    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
-      <input type="radio" name="neisRoleMode" value="학급담임" style="width:auto; margin-top:0;" /> 학급담임
-    </label>
-    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
-      <input type="radio" name="neisRoleMode" value="부서장" style="width:auto; margin-top:0;" /> 부서장
-    </label>
-    <label style="display:flex; align-items:center; gap:4px; margin:0; width:auto;">
-      <input type="radio" name="neisRoleMode" value="custom" style="width:auto; margin-top:0;" /> 직접입력
-    </label>
-  </div>
-  <label id="neisRoleCustomWrap" style="display:none">역할 탭 이름
-    <input id="neisRoleCustomText" placeholder="예: 동아리담임" />
-  </label>
-  <div class="note">
-    나이스 상단 "역할" 탭 이름의 앞부분과 일치하면 찾아집니다(예: "부서장"만 입력해도 "부서장(교무기획부)"
-    탭을 찾습니다). 동아리담임 등 목록에 없는 역할은 "직접입력"으로 정확한 탭 이름을 넣어주세요.
-  </div>
+      <label class="section-title">메뉴에 표시할 항목</label>
+      <div id="menuVisibilityList"></div>
+      <div class="note">권한이 없어 안 쓰는 항목은 꺼두면 메뉴에서 숨겨집니다.</div>
 
-  <label class="section-title">메뉴에 표시할 항목</label>
-  <div id="menuVisibilityList" style="margin-top:6px;"></div>
-  <div class="note">권한이 없어 안 쓰는 항목은 꺼두면 메뉴에서 숨겨집니다.</div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+        <input id="panelAutoCloseEnabled" type="checkbox" style="width:auto; margin-top:0;" />
+        <span>메뉴 자동 닫힘</span>
+      </label>
+      <label id="panelAutoCloseSecondsWrap">닫히기까지 걸리는 시간 (초)
+        <input id="panelAutoCloseSeconds" type="number" min="1" max="600" step="1" value="10" />
+      </label>
+      <div class="note">켜면 캐릭터를 클릭해 펼친 메뉴가 지정한 시간 뒤 자동으로 접힙니다.</div>
 
-  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
-    <input id="panelAutoCloseEnabled" type="checkbox" style="width:auto; margin-top:0;" />
-    <span>메뉴 자동 닫힘</span>
-  </label>
-  <label id="panelAutoCloseSecondsWrap">닫히기까지 걸리는 시간 (초)
-    <input id="panelAutoCloseSeconds" type="number" min="1" max="600" step="1" value="10" />
-  </label>
-  <div class="note">켜면 캐릭터를 클릭해 펼친 메뉴가 지정한 시간 뒤 자동으로 접힙니다.</div>
+      <label>메뉴 투명도 (<span id="opacityValue">92</span>%)
+        <input id="panelOpacity" type="range" min="20" max="100" step="1" value="92" />
+      </label>
+      <div class="note">캐릭터를 클릭했을 때 펼쳐지는 메뉴 배경의 투명도입니다. 낮출수록 더 투명해집니다.</div>
+    </div>
 
-  <label>메뉴 투명도 (<span id="opacityValue">92</span>%)
-    <input id="panelOpacity" type="range" min="20" max="100" step="1" value="92" />
-  </label>
-  <div class="note">캐릭터를 클릭했을 때 펼쳐지는 메뉴 배경의 투명도입니다. 낮출수록 더 투명해집니다.</div>
+    <!-- ===== 자동 확인 / 알림 ===== -->
+    <div class="tab-panel" data-tab="autocheck">
+      <label style="display:flex; align-items:center; gap:8px;">
+        <input id="dashboardAutoRefresh" type="checkbox" checked style="width:auto; margin-top:0;" />
+        <span>나이스 결재 / 공문 결재 건수 자동 확인</span>
+      </label>
+      <label id="dashboardMinutesWrap">확인 주기 (분)
+        <input id="dashboardRefreshMinutes" type="number" min="1" max="120" step="1" value="5" />
+      </label>
+      <div class="note">
+        "나이스 결재" 버튼에는 미결/협조함 건수, "공문 결재" 버튼에는 K-에듀파인 결재(긴급) 건수가
+        배지로 표시됩니다. 지정한 주기마다 백그라운드에서 자동으로 확인합니다.
+      </div>
 
-  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
-    <input id="dashboardAutoRefresh" type="checkbox" checked style="width:auto; margin-top:0;" />
-    <span>나이스 결재 / 공문 결재 건수 자동 확인</span>
-  </label>
-  <label id="dashboardMinutesWrap">확인 주기 (분)
-    <input id="dashboardRefreshMinutes" type="number" min="1" max="120" step="1" value="5" />
-  </label>
-  <div class="note">
-    "나이스 결재" 버튼에는 미결/협조함 건수, "공문 결재" 버튼에는 K-에듀파인 결재(긴급) 건수가
-    배지로 표시됩니다. 지정한 주기마다 백그라운드에서 자동으로 확인합니다.
-  </div>
+      <label style="margin-top:16px;">체험신청서/체험보고서 확인 시각</label>
+      <div style="display:flex; gap:10px;">
+        <label style="flex:1; margin-top:4px;">오전
+          <input id="fieldTripCheckTime1" type="time" value="08:50" />
+        </label>
+        <label style="flex:1; margin-top:4px;">오후
+          <input id="fieldTripCheckTime2" type="time" value="15:00" />
+        </label>
+      </div>
+      <div class="note">아래 두 자동 확인은 매일 이 두 시각에만 실행됩니다.</div>
 
-  <label style="margin-top:16px;">체험신청서/체험보고서 확인 시각</label>
-  <div style="display:flex; gap:10px;">
-    <label style="flex:1; margin-top:4px;">오전
-      <input id="fieldTripCheckTime1" type="time" value="08:50" />
-    </label>
-    <label style="flex:1; margin-top:4px;">오후
-      <input id="fieldTripCheckTime2" type="time" value="15:00" />
-    </label>
-  </div>
-  <div class="note">아래 두 자동 확인은 매일 이 두 시각에만 실행됩니다.</div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+        <input id="fieldTripApplyAutoRefresh" type="checkbox" style="width:auto; margin-top:0;" />
+        <span>교외체험학습신청서 접수대기/미상신 건수 자동 확인</span>
+      </label>
+      <div class="note">
+        "체험신청서" 버튼에 접수대기·미상신 상태인 건수가 배지로 표시됩니다. 나이스 화면까지 실제로
+        이동해서 확인하는 작업이라 위에서 지정한 시각에만 확인합니다(기본 꺼짐).
+      </div>
 
-  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
-    <input id="fieldTripApplyAutoRefresh" type="checkbox" style="width:auto; margin-top:0;" />
-    <span>교외체험학습신청서 접수대기/미상신 건수 자동 확인</span>
-  </label>
-  <div class="note">
-    "체험신청서" 버튼에 접수대기·미상신 상태인 건수가 배지로 표시됩니다. 나이스 화면까지 실제로
-    이동해서 확인하는 작업이라 위에서 지정한 시각에만 확인합니다(기본 꺼짐).
-  </div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+        <input id="fieldTripReportAutoRefresh" type="checkbox" style="width:auto; margin-top:0;" />
+        <span>교외체험학습보고서 접수대기/미상신 건수 자동 확인</span>
+      </label>
+      <div class="note">
+        "체험보고서" 버튼에 접수대기·미상신 상태인 건수가 배지로 표시됩니다. 위 신청서 확인과 마찬가지로
+        위에서 지정한 시각에만 확인합니다(기본 꺼짐).
+      </div>
 
-  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
-    <input id="fieldTripReportAutoRefresh" type="checkbox" style="width:auto; margin-top:0;" />
-    <span>교외체험학습보고서 접수대기/미상신 건수 자동 확인</span>
-  </label>
-  <div class="note">
-    "체험보고서" 버튼에 접수대기·미상신 상태인 건수가 배지로 표시됩니다. 위 신청서 확인과 마찬가지로
-    위에서 지정한 시각에만 확인합니다(기본 꺼짐).
-  </div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+        <input id="popupAutoCloseEnabled" type="checkbox" checked style="width:auto; margin-top:0;" />
+        <span>공지 팝업 자동 닫기</span>
+      </label>
+      <div class="note">
+        나이스/K-에듀파인 등에서 뜨는 공지·안내 팝업을 자동으로 감지해 닫아줍니다. <b class="warn-text">이 기능을 켜두면
+        일부 화면(예: 게시판 첨부파일 다운로드 창)에서 팝업으로 잘못 인식돼 파일 다운로드가 안 되는
+        문제가 발생할 수 있습니다.</b> 다운로드가 잘 안 될 때는 꺼서 확인해 보세요 - 끄면 팝업이 떠도
+        직접 닫아야 합니다.
+      </div>
+    </div>
 
-  <label style="margin-top:16px;">자주 가는 사이트</label>
-  <div id="customLinksList"></div>
-  <div style="display:flex; gap:6px; margin-top:6px;">
-    <input id="newLinkLabel" placeholder="메뉴명 (예: 학교 홈페이지)" style="flex:1; margin-top:0;" />
-    <input id="newLinkUrl" placeholder="주소 (예: school.go.kr)" style="flex:1.4; margin-top:0;" />
-    <button id="addLinkBtn" type="button" style="width:auto; margin-top:0; padding:0 12px; flex-shrink:0;">추가</button>
-  </div>
-  <div class="note">메뉴에 버튼으로 추가되며, 클릭하면 기본 브라우저로 열립니다.</div>
+    <!-- ===== 시작 프로그램 / 자주 가는 사이트 ===== -->
+    <div class="tab-panel" data-tab="startup">
+      <label style="display:flex; align-items:center; gap:8px;">
+        <input id="autoStartOnLogin" type="checkbox" style="width:auto; margin-top:0;" />
+        <span>Windows 시작 시 자동 실행</span>
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <input id="autoLaunchMessenger" type="checkbox" style="width:auto; margin-top:0;" />
+        <span>프로그램 실행 시 메신저 자동 실행</span>
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <input id="autoLaunchSchedule" type="checkbox" style="width:auto; margin-top:0;" />
+        <span>프로그램 실행 시 일정 자동 실행</span>
+      </label>
+      <div class="note">
+        메신저만 체크하면 메신저만, 일정만 체크하면 일정만 실행됩니다. 둘 다 체크하면 메신저 로그인
+        후 이어서 일정 페이지를 띄워 둡니다.
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+        <input id="minimizeMessengerOnLaunch" type="checkbox" checked style="width:auto; margin-top:0;" />
+        <span>메신저 실행 시 최소화하기</span>
+      </label>
+      <div class="note">메신저 창이 화면 앞으로 튀어나오지 않도록, 실행되면 바로 최소화합니다.</div>
 
-  <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
-    <input id="autoStartOnLogin" type="checkbox" style="width:auto; margin-top:0;" />
-    <span>Windows 시작 시 자동 실행</span>
-  </label>
-  <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-    <input id="autoLaunchMessenger" type="checkbox" style="width:auto; margin-top:0;" />
-    <span>프로그램 실행 시 메신저 자동 실행</span>
-  </label>
-  <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-    <input id="autoLaunchSchedule" type="checkbox" style="width:auto; margin-top:0;" />
-    <span>프로그램 실행 시 일정 자동 실행</span>
-  </label>
-  <div class="note">
-    메신저만 체크하면 메신저만, 일정만 체크하면 일정만 실행됩니다. 둘 다 체크하면 메신저 로그인
-    후 이어서 일정 페이지를 띄워 둡니다.
-  </div>
-  <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-    <input id="minimizeMessengerOnLaunch" type="checkbox" checked style="width:auto; margin-top:0;" />
-    <span>메신저 실행 시 최소화하기</span>
-  </label>
-  <div class="note">메신저 창이 화면 앞으로 튀어나오지 않도록, 실행되면 바로 최소화합니다.</div>
-
-  <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-    <input id="popupAutoCloseEnabled" type="checkbox" checked style="width:auto; margin-top:0;" />
-    <span>공지 팝업 자동 닫기</span>
-  </label>
-  <div class="note">
-    나이스/K-에듀파인 등에서 뜨는 공지·안내 팝업을 자동으로 감지해 닫아줍니다. <b style="color:#e0b050;">이 기능을 켜두면
-    일부 화면(예: 게시판 첨부파일 다운로드 창)에서 팝업으로 잘못 인식돼 파일 다운로드가 안 되는
-    문제가 발생할 수 있습니다.</b> 다운로드가 잘 안 될 때는 꺼서 확인해 보세요 - 끄면 팝업이 떠도
-    직접 닫아야 합니다.
+      <label class="section-title">자주 가는 사이트</label>
+      <div id="customLinksList"></div>
+      <div style="display:flex; gap:6px; margin-top:6px;">
+        <input id="newLinkLabel" placeholder="메뉴명 (예: 학교 홈페이지)" style="flex:1; margin-top:0;" />
+        <input id="newLinkUrl" placeholder="주소 (예: school.go.kr)" style="flex:1.4; margin-top:0;" />
+        <button id="addLinkBtn" type="button" style="width:auto; margin-top:0; padding:0 12px; flex-shrink:0;">추가</button>
+      </div>
+      <div class="note">메뉴에 버튼으로 추가되며, 클릭하면 기본 브라우저로 열립니다.</div>
+    </div>
   </div>
 
   <button id="saveBtn">저장</button>
+  </div>
 
   <script>
+    // ===== 카테고리 탭 전환 =====
+    const tabButtons = [...document.querySelectorAll('.tab-btn')];
+    const tabPanels = [...document.querySelectorAll('.tab-panel')];
+    function switchTab(tabKey) {
+      tabButtons.forEach((b) => b.classList.toggle('active', b.dataset.tab === tabKey));
+      tabPanels.forEach((p) => p.classList.toggle('active', p.dataset.tab === tabKey));
+    }
+    tabButtons.forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+    switchTab('account');
+
     const regionSelect = document.getElementById('region');
     const customWrap = document.getElementById('customWrap');
     const profileSelect = document.getElementById('browserProfile');
@@ -253,6 +399,13 @@
     const panelAutoCloseEnabledInput = document.getElementById('panelAutoCloseEnabled');
     const panelAutoCloseSecondsInput = document.getElementById('panelAutoCloseSeconds');
     const panelAutoCloseSecondsWrap = document.getElementById('panelAutoCloseSecondsWrap');
+    const uiThemeInputs = [...document.querySelectorAll('input[name="uiTheme"]')];
+    function applyThemePreview() {
+      const selected = uiThemeInputs.find((r) => r.checked);
+      document.documentElement.dataset.theme = selected?.value === 'dark' ? 'dark' : 'light';
+    }
+    uiThemeInputs.forEach((r) => r.addEventListener('change', applyThemePreview));
+
     const neisRoleModeInputs = [...document.querySelectorAll('input[name="neisRoleMode"]')];
     const neisRoleCustomWrap = document.getElementById('neisRoleCustomWrap');
     const neisRoleCustomTextInput = document.getElementById('neisRoleCustomText');
@@ -419,6 +572,10 @@
     async function init() {
       const config = await window.portalPet.getConfig();
 
+      const uiTheme = config?.uiTheme === 'dark' ? 'dark' : 'light';
+      uiThemeInputs.forEach((r) => { r.checked = r.value === uiTheme; });
+      applyThemePreview();
+
       browserChannelSelect.value = config?.browserChannel === 'msedge' ? 'msedge' : 'chrome';
       syncEdgeNote();
       const wantedProfile = config?.browserProfile
@@ -518,6 +675,7 @@
       const hiddenMenuItems = Object.entries(menuVisibilityInputs)
         .filter(([, input]) => !input.checked)
         .map(([key]) => key);
+      const uiTheme = uiThemeInputs.find((r) => r.checked)?.value === 'dark' ? 'dark' : 'light';
       await window.portalPet.saveSetup({
         region, subdomain, password, browserProfile, browserChannel, autoStartOnLogin,
         autoLaunchMessenger, autoLaunchSchedule, minimizeMessengerOnLaunch,
@@ -525,7 +683,7 @@
         fieldTripCheckTime1, fieldTripCheckTime2,
         fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
         panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
-        hiddenMenuItems, popupAutoCloseEnabled,
+        hiddenMenuItems, popupAutoCloseEnabled, uiTheme,
       });
     });
   </script>
