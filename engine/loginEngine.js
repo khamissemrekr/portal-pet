@@ -38,10 +38,41 @@ async function gotoWithRetry(page, url, opts = {}) {
   try {
     return await page.goto(url, opts);
   } catch (e) {
-    if (!/ERR_ABORTED/.test(e.message || '')) throw e;
-    console.log(`[PortalPet] goto(${url}) aborted (cold browser start로 보임) - 1초 뒤 재시도`);
+    const message = e.message || '';
+    // (버그 수정, 사용자 재현: 2026-09-07 부팅 후 자동 실행 중 "Navigation to
+    // bpm_man_mn00_001.do is interrupted by another navigation to bpm_lgn_lg00_001.do")
+    // SSO 세션이 끊긴 직후에는 우리 goto가 끝나기 전에 페이지 자신이(만료된 SSO 응답 등으로)
+    // 로그인 페이지로 되돌아가는 리다이렉트를 스스로 걸어, 그게 우리 goto를 가로채 던지는
+    // 경우가 있다 - cold start의 ERR_ABORTED와 같은 성격의 일시적 레이스이므로 잠깐 쉬었다가
+    // 한 번 더 시도한다(실패해도 어차피 호출 쪽의 로그인 재확립 로직이 뒤이어 처리한다).
+    if (!/ERR_ABORTED|interrupted by another navigation/.test(message)) throw e;
+    console.log(`[PortalPet] goto(${url}) 방해받음(${/ERR_ABORTED/.test(message) ? 'cold browser start' : '페이지 자체 리다이렉트'}로 보임) - 1초 뒤 재시도`);
     await page.waitForTimeout(1000);
     return page.goto(url, opts);
+  }
+}
+
+/**
+ * (버그 수정, 사용자 재현: 2026-09-07 부팅 후 자동 실행이 5분 넘게 멈춤) page.close()는 보통
+ * 즉시 끝나지만, 그 탭이 로그인/포털 홈 사이를 계속 오가는 리다이렉트 루프 등 이상한 내비게이션
+ * 상태에 걸려 있으면 CDP의 탭 종료 핸드셰이크 자체가 오래 걸릴 수 있다(실측 확인: 로그 상
+ * page.close() 호출 한 줄과 바로 다음 로그 사이에 5분 21초 공백 - 그사이 다른 로그가 전혀
+ * 없어 이 close() 호출 말고는 걸릴 만한 지점이 없었다). launchService/checkPortalDashboard는
+ * 이 호출들을 순서대로 기다리므로, 탭 하나의 close()가 오래 걸리면 메신저/일정/결재 현황
+ * 확인까지 전부 그만큼 밀린다 - 타임아웃을 걸어 오래 걸리면 포기하고 계속 진행한다(탭이
+ * 백그라운드에 좀 남아있는 게, 전체 자동 실행이 몇 분씩 멈추는 것보다 훨씬 낫다).
+ */
+async function closePageSafely(page, { timeoutMs = 5000, label = '' } = {}) {
+  if (!page || page.isClosed()) return;
+  const tag = label ? ` - ${label}` : '';
+  let timedOut = false;
+  const timeout = new Promise((resolve) => setTimeout(() => { timedOut = true; resolve(); }, timeoutMs));
+  await Promise.race([
+    page.close().catch((e) => console.log(`[PortalPet] page.close() 실패(non-fatal)${tag}:`, e.message)),
+    timeout,
+  ]);
+  if (timedOut) {
+    console.log(`[PortalPet] page.close() 타임아웃(${timeoutMs}ms)${tag} - 기다리지 않고 계속 진행(탭은 백그라운드에 남을 수 있음)`);
   }
 }
 
@@ -634,7 +665,7 @@ async function closeExtraPages(context, keepPage) {
     console.log('[PortalPet] closing leftover page:', p.url());
     await closeNeisRequestPopup(p).catch(() => {});
     if (!p.isClosed()) {
-      await p.close().catch((e) => console.log('[PortalPet] closing leftover page failed (non-fatal):', e.message));
+      await closePageSafely(p, { label: 'leftover page' });
     }
   }
 }
@@ -662,6 +693,19 @@ async function raceLoginSignals(page, timeout) {
  * 인증서 암호 입력이 필요한 상태인지 확인하고, 필요하면 자동 입력한다.
  * 이미 로그인돼 있으면(모달이 없으면) 그냥 통과한다.
  */
+/**
+ * (버그 수정, 기존 TODO: "로그인 성공/실패 판정은 아직 TODO - 에러 메시지 셀렉터를 확인 못
+ * 함") 인증서 암호 입력창(certPassword)이 사라졌다고 해서 로그인이 실제로 성공했다는 뜻은
+ * 아니다 - 암호가 틀렸을 때 서버가 모달만 닫고 "교육행정 전자서명 인증서 로그인" 버튼이 있는
+ * 초기 로그인 화면으로 되돌리는 경우, Playwright 입장에서는 그냥 "모달이 사라짐(closed:true)"
+ * 으로만 보여 실패를 성공으로 오판할 수 있다. 정확한 에러 메시지 셀렉터는 여전히 확인 못 했지만,
+ * #btnLgn(이 함수 초입에서 클릭해 사라졌던 바로 그 로그인 시작 버튼)이 모달이 닫힌 뒤 다시
+ * 보이면 "로그인 전 초기 화면으로 되돌아갔다"는 확실한 신호이므로, 이 재등장 여부로 오판을 줄인다.
+ */
+async function didCertLoginBounceBackToLoginButton(page) {
+  return page.locator('#btnLgn').isVisible().catch(() => false);
+}
+
 async function completeCertLoginIfNeeded(page, password) {
   // (버그 수정) 예전엔 "#btnLgn이 보이는지"(최대 5초)와 "certPassword가 보이는지"(최대 15초)를
   // 순서대로 각각 끝까지 기다렸다 - 이미 로그인된 세션(인증서 모달 자체가 안 뜨는 경우)에서도
@@ -716,6 +760,10 @@ async function completeCertLoginIfNeeded(page, password) {
     await page.bringToFront().catch(() => {});
     const closed = await passwordField.waitFor({ state: 'hidden', timeout: 120000 }).then(() => true).catch(() => false);
     console.log('[PortalPet] modal closed (수동 입력):', closed);
+    if (closed && (await didCertLoginBounceBackToLoginButton(page))) {
+      console.log('[PortalPet] 모달은 닫혔지만 로그인 버튼 화면으로 되돌아감(수동 입력) - 로그인 실패로 판단');
+      return { loggedIn: false };
+    }
     return { loggedIn: closed };
   }
 
@@ -729,10 +777,14 @@ async function completeCertLoginIfNeeded(page, password) {
   await confirmBtn.click();
   console.log('[PortalPet] clicked 확인, waiting for modal to close...');
 
-  // 로그인 성공/실패 판정은 아직 TODO: 에러 메시지 셀렉터를 확인 못 함.
-  // 일단 모달(certPassword 입력창)이 사라지는지로 성공 여부를 추정한다.
+  // 모달(certPassword 입력창)이 사라지는지로 일단 판단한다. 다만 그것만으로 성공을 단정하지
+  // 않고, 아래에서 #btnLgn 재등장 여부로 한 번 더 걸러낸다(didCertLoginBounceBackToLoginButton).
   const closed = await passwordField.waitFor({ state: 'hidden', timeout: 8000 }).then(() => true).catch(() => false);
   console.log('[PortalPet] modal closed:', closed);
+  if (closed && (await didCertLoginBounceBackToLoginButton(page))) {
+    console.log('[PortalPet] 모달은 닫혔지만 로그인 버튼 화면으로 되돌아감 - 인증서 로그인 실패로 판단');
+    return { loggedIn: false };
+  }
   return { loggedIn: closed };
 }
 
@@ -1398,12 +1450,29 @@ async function waitForPortalMenu(page, { timeout = 20000 } = {}) {
  * 없으므로) 그 시스템 자체의 인증서 로그인 창이 다시 뜨는 경우가 있다(나이스에서 실측 확인).
  * password를 넘겨주면 그 로그인 창도 completeCertLoginIfNeeded로 한 번 더 자동 처리한다.
  */
-async function goToPortalMenu(page, label, { fallbackUrl = null, password = null } = {}) {
+async function goToPortalMenu(page, label, { fallbackUrl = null, password = null, subdomain = null } = {}) {
   await waitForPortalMenu(page);
   const url = await readPortalMenuUrl(page, label);
   if (url) {
     console.log(`[PortalPet] portal menu "${label}" -> ${url}`);
     await gotoWithRetry(page, url, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] goto failed:', e.message));
+    // (신규, 사용자 재현: 2026-09-07 G-ONE 진입 시 로그인 페이지로 되튕김) 인증서 로그인
+    // 자체는 성공(모달 닫힘, 포털 홈 메뉴도 보임)했더라도, 그 직후 포털 홈에서 읽은 SSO
+    // 링크는 IDP(idp1-goe.neis.go.kr) 쪽에 세션이 아직 완전히 반영되기 전에 발급된 토큰일
+    // 수 있어 로그인 페이지(bpm_lgn_lg00_001)로 되튕겨나오는 경우가 있다. 이 경우 같은 페이지
+    // 에서 SSO 링크만 다시 읽어봐야 그 포털 홈 탭 자체가 이미 반쪽짜리 세션이라 소용없다
+    // (실측 확인: 재발) - 인증서 로그인부터 다시 밟아 세션을 재확립한 뒤, 새로 발급된 SSO
+    // 링크로 한 번 더 시도한다.
+    if (subdomain && page.url().includes('bpm_lgn_lg00_001')) {
+      console.log(`[PortalPet] "${label}" 진입 중 로그인 페이지로 되튕김(SSO 세션 미확립 추정) - 인증서 로그인부터 재시도`);
+      if (await reestablishPortalSession(page, subdomain, password)) {
+        const retryUrl = await readPortalMenuUrl(page, label);
+        if (retryUrl) {
+          console.log(`[PortalPet] portal menu "${label}" 재시도 -> ${retryUrl}`);
+          await gotoWithRetry(page, retryUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] goto 재시도 실패:', e.message));
+        }
+      }
+    }
     // (수정) 이 함수는 나이스/K-에듀파인/G-ONE/교데통 진입 경로가 전부 거쳐가는 공통 관문인데,
     // 예전엔 여기서 공지 팝업을 안 닫아서 openNeisSubMenu/openNeisApproval처럼 "자기 안에서
     // 따로 챙겨준" 함수만 안전하고, 그 외 경로(예: 하위 메뉴 없이 시스템 헤더 버튼으로 바로
@@ -1487,6 +1556,30 @@ async function ensureLoggedInOnPortalHome(page, portalUrl) {
   // 나타나는 지점 중 하나 - 이후 메뉴 클릭을 가리지 않도록 몇 초간 지켜보며 닫는다.
   await closeAnyPopupsForAWhile(page);
   return true;
+}
+
+/**
+ * (신규, 사용자 재현: 2026-09-07 부팅 후 자동 실행 시 G-ONE 진입이 로그인 페이지로 되튕김)
+ * 포털 홈 메뉴(a.menuBtn)가 보인다고 해서 하위 시스템(나이스/G-ONE 등)으로 넘어가는 SSO
+ * 핸드셰이크까지 확실히 준비됐다는 뜻은 아니다 - 인증서 로그인 직후 IDP(idp1-goe.neis.go.kr)
+ * 쪽 세션 반영이 늦으면, 포털 홈은 정상 렌더링되지만 그 홈에서 읽은 SSO 링크는 로그인
+ * 페이지로 되튕겨나오는 반쪽짜리 상태가 된다(실측 확인). 이 상태에서는 같은 탭에서 SSO
+ * 링크만 다시 읽어봐야 여전히 같은 반쪽짜리 세션이라 또 실패한다 - 포털 로그인 URL로 다시
+ * 이동해 인증서 로그인부터 새로 밟아야 새 세션/새 SSO 토큰을 받을 수 있다.
+ */
+async function reestablishPortalSession(page, subdomain, password) {
+  const portalUrl = buildPortalUrl(subdomain);
+  console.log('[PortalPet] SSO 세션 재확립 시도 - 포털 로그인부터 다시 진행:', portalUrl);
+  await gotoWithRetry(page, portalUrl, { waitUntil: 'domcontentloaded' }).catch((e) =>
+    console.log('[PortalPet] SSO 재확립 - 포털 이동 실패:', e.message)
+  );
+  const result = await completeCertLoginIfNeeded(page, password);
+  console.log('[PortalPet] SSO 재확립 - 로그인 결과:', result);
+  const reachedHome = await ensureLoggedInOnPortalHome(page, portalUrl);
+  if (!reachedHome) {
+    console.log('[PortalPet] SSO 세션 재확립 실패 - 여전히 로그인 페이지');
+  }
+  return reachedHome;
 }
 
 // ===== K-에듀파인/나이스 정밀 선택자 (원클릭업무포털 OneClickPortal의 PortalWorkflowController.cs
@@ -2007,7 +2100,7 @@ async function openGiahn(page, subdomain, password, alreadyOnEdufine = false) {
     console.log('[PortalPet] 이미 K-에듀파인에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
+    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password, subdomain });
   }
   await waitForEdufineReady(target);
   await selectEdufineJob(target, '업무관리');
@@ -2030,7 +2123,7 @@ async function openPumui(page, subdomain, password, alreadyOnEdufine = false) {
     console.log('[PortalPet] 이미 K-에듀파인에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
+    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password, subdomain });
   }
   await waitForEdufineReady(target);
   await selectEdufineJob(target, '학교회계');
@@ -2052,7 +2145,7 @@ async function openEdufineApproval(page, subdomain, password, alreadyOnEdufine =
     console.log('[PortalPet] 이미 K-에듀파인에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
+    target = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password, subdomain });
   }
   // (버그 수정) openNeisSubMenu는 나이스 진입 직후 매번 closeAnyPopupsForAWhile을 불러 공지
   // 팝업을 닫아주는데, 이 함수는 그 대응이 빠져 있었다(사용자 재현: K-에듀파인 진입 시 공지
@@ -2086,7 +2179,7 @@ async function openNeisSubMenu(page, subdomain, taskTabName, password, alreadyOn
     console.log('[PortalPet] 이미 나이스에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
+    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password, subdomain });
     await target.waitForTimeout(1500);
   }
   // (수정) 공지사항 팝업은 나이스에 "처음" 들어갈 때만 뜨는 게 아니라, 이미 나이스에 있는
@@ -2151,7 +2244,7 @@ async function openNeisApproval(page, subdomain, password, alreadyOnNeis = false
     console.log('[PortalPet] 이미 나이스에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
+    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password, subdomain });
     await target.waitForTimeout(1500);
   }
   // (수정) alreadyOnNeis일 때도(이미 나이스에 있다가 "나이스 결재"를 다시 누르는 경우 등)
@@ -2384,7 +2477,7 @@ async function openNeisRoleMenu(page, subdomain, password, alreadyOnNeis = false
     console.log('[PortalPet] 이미 나이스에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
+    target = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password, subdomain });
     await target.waitForTimeout(1500);
   }
   // openNeisSubMenu/openNeisApproval과 동일한 이유 - alreadyOnNeis 여부와 무관하게 매번
@@ -2402,9 +2495,13 @@ async function openNeisRoleMenu(page, subdomain, password, alreadyOnNeis = false
   // 탭 바가 있는지 확인하고 없으면 target을 포털 홈으로 되돌려 SSO 링크를 새로 읽어 재진입한다.
   const hasNeisNavBar = () => target.evaluate(() => document.querySelectorAll('.cl-navigationbar-item').length > 0).catch(() => false);
   if (!(await hasNeisNavBar())) {
-    console.log('[PortalPet] 나이스 상단 역할 탭 바가 안 보임(SSO 진입 실패 추정) - 포털 홈에서 SSO 링크를 다시 읽어 재진입 시도:', target.url());
-    await ensureOnPortalHome(target, subdomain);
-    target = await goToPortalMenu(target, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
+    console.log('[PortalPet] 나이스 상단 역할 탭 바가 안 보임(SSO 진입 실패 추정) - 인증서 로그인부터 재시도:', target.url());
+    // (버그 수정) ensureOnPortalHome은 이미 .eduptl.kr 도메인(로그인 페이지 포함)이면
+    // 아무것도 안 하고 넘어간다 - 세션이 죽은 채로 로그인 페이지에 머물러 있는 이 경우엔
+    // no-op이라 같은 반쪽짜리 세션의 SSO 링크를 또 읽게 돼 재발했다(실측 확인). 인증서
+    // 로그인부터 다시 밟는 reestablishPortalSession으로 교체.
+    await reestablishPortalSession(target, subdomain, password);
+    target = await goToPortalMenu(target, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password, subdomain });
     await target.waitForTimeout(1500);
     await closeAnyPopupsForAWhile(target);
   }
@@ -2685,7 +2782,7 @@ async function clickAndFollowPopup(context, page, el, label) {
       // 메신저가 로그아웃 상태로 뜬다. 다이렉트로 열었을 때도 폴백 경로와 동일하게 잠시
       // 기다렸다가 닫는다(속도보다 로그인 성공이 우선).
       await popup.waitForTimeout(3000).catch(() => {});
-      await popup.close().catch((e) => console.log('[PortalPet] closing messenger bridge tab failed (non-fatal):', e.message));
+      await closePageSafely(popup, { label: 'messenger bridge tab' });
       return page;
     }
     console.log(`[PortalPet] "${label}" click opened a new tab - switching to it and closing the old tab`);
@@ -2696,7 +2793,7 @@ async function clickAndFollowPopup(context, page, el, label) {
       mainServiceTabs.delete(popup);
       if (sharedPage === popup) sharedPage = null;
     });
-    await page.close().catch((e) => console.log('[PortalPet] closing old tab failed (non-fatal):', e.message));
+    await closePageSafely(page, { label: 'old tab' });
     return popup;
   }
   return page;
@@ -2796,7 +2893,7 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
       await closeAnyPopupsForAWhile(target);
     } else {
       // SSO 링크를 못 읽었으면(드묾) 기존 방식대로 안전하게 폴백 - 이 탭에서 그대로 이동.
-      target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
+      target = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password, subdomain });
     }
     await target.waitForTimeout(900);
 
@@ -2807,15 +2904,21 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
     // 텍스트를 찾기 전에 먼저 실제로 G-ONE에 도착했는지 확인하고, 아니면 잠깐 쉬었다가 SSO
     // 링크를 다시 읽어 한 번 더 시도한다.
     if (!(await isOnSystem(target, 'gone', subdomain))) {
-      console.log('[PortalPet] G-ONE 진입 실패로 보임(SSO 오류 페이지 추정) - 잠시 후 한 번 더 시도:', target.url());
-      // (버그 수정, 사용자 재현: 2초 대기 후 재시도해도 여전히 실패) 로그인 직후 SSO 서버가
-      // 세션을 완전히 반영하기까지 2초로는 부족한 경우가 있는 것으로 보여 4초로 늘린다.
-      await target.waitForTimeout(4000);
-      const retryGoneUrl = await readPortalMenuUrl(page, 'G-ONE');
+      console.log('[PortalPet] G-ONE 진입 실패로 보임(SSO 오류 페이지 추정) - 인증서 로그인부터 재시도:', target.url());
+      // (버그 수정, 사용자 재현: 2026-09-07 부팅 후 자동 실행 시 재발) 예전엔 4초만 대기한
+      // 뒤 같은 포털 홈 탭(page)에서 SSO 링크를 다시 읽었는데, page 자체가 이미 반쪽짜리
+      // 세션인 채로 남아있어 같은(또는 만료된) 토큰을 또 읽어와 그대로 재발했다(실측 확인:
+      // 4초 대기 재시도까지 실패). page를 포털 로그인 URL로 다시 보내 인증서 로그인부터
+      // 새로 밟아 세션을 재확립한 뒤에야 새 SSO 토큰을 읽는다.
+      const resessioned = await reestablishPortalSession(page, subdomain, password);
+      const retryGoneUrl = resessioned ? await readPortalMenuUrl(page, 'G-ONE') : null;
       if (retryGoneUrl) {
+        console.log(`[PortalPet] portal menu "G-ONE" 재시도 -> ${retryGoneUrl}`);
         await gotoWithRetry(target, retryGoneUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] G-ONE 재시도 goto 실패:', e.message));
         await closeAnyPopupsForAWhile(target);
         await target.waitForTimeout(900);
+      } else {
+        console.log('[PortalPet] G-ONE 세션 재확립 실패 - 이번 실행은 실패로 남김');
       }
     }
   }
@@ -2847,7 +2950,7 @@ async function openEdmgrApproval(page, subdomain, password, alreadyOnEdmgr = fal
     console.log('[PortalPet] 이미 교데통에 있음 - 포털 홈 재방문 생략');
   } else {
     await ensureOnPortalHome(page, subdomain);
-    target = await goToPortalMenu(page, '교육데이터포털', { fallbackUrl: buildEdmgrUrl(subdomain, 'main'), password });
+    target = await goToPortalMenu(page, '교육데이터포털', { fallbackUrl: buildEdmgrUrl(subdomain, 'main'), password, subdomain });
   }
   await gotoWithRetry(target, buildEdmgrUrl(subdomain, 'taskPotlMain'), { waitUntil: 'domcontentloaded' }).catch((e) =>
     console.log('[PortalPet] 교데통 내부승인처리 이동 실패:', e.message)
@@ -2917,7 +3020,7 @@ async function findExistingPortalHomePage(context, subdomain, excludePage = null
     // 다음 주기까지 남기지 않는다. page.close()가 트리거하는 'close' 리스너가 mainServiceTabs/
     // sharedPage 정리는 알아서 해준다.
     console.log('[PortalPet] 되살리기 실패한 leftover 포털 홈 탭을 정리함(탭 누적 방지):', p.url());
-    await p.close().catch((e) => console.log('[PortalPet] leftover 포털 홈 탭 닫기 실패(non-fatal):', e.message));
+    await closePageSafely(p, { label: 'leftover 포털 홈 탭' });
   }
   return null;
 }
@@ -3085,8 +3188,13 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       if (freshlyOpenedTab) {
         // page.close()가 트리거하는 'close' 리스너(openFreshTab/getPage에 등록됨)가
         // mainServiceTabs/sharedPage 정리는 알아서 해준다 - 여기서는 닫기만 한다.
+        // (버그 수정) 예전엔 여기서 그냥 page.close()를 기다렸는데, 이 탭이 로그인/포털 홈
+        // 사이 리다이렉트 루프에 걸려 있으면 close() 자체가 몇 분씩 걸려 이 호출 전체(그리고
+        // 그걸 순서대로 기다리는 runStartupAutoLaunch/결재 현황 자동 확인의 다음 단계까지)를
+        // 막았다(실측 확인: 2026-09-07 부팅 후 자동 실행이 5분 21초 멈춤). 타임아웃을 건
+        // 안전한 closePageSafely로 교체.
         console.log('[PortalPet] 포털 홈 진입 실패 - 방금 새로 연 탭을 정리함(탭 누적 방지):', e.message);
-        await page.close().catch(() => {});
+        await closePageSafely(page, { label: 'freshlyOpenedTab cleanup' });
       }
       throw e;
     }
@@ -3115,7 +3223,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
         await closeAnyPopupsForAWhile(page);
         targetPage = page;
       } else {
-        targetPage = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password });
+        targetPage = await goToPortalMenu(page, '나이스', { fallbackUrl: buildNeisUrl(subdomain), password, subdomain });
       }
       break;
     case 'edufine':
@@ -3123,7 +3231,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
         await closeAnyPopupsForAWhile(page); // 나이스와 동일한 이유
         targetPage = page;
       } else {
-        targetPage = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password });
+        targetPage = await goToPortalMenu(page, 'K-에듀파인', { fallbackUrl: buildEdufineUrl(subdomain), password, subdomain });
       }
       break;
     case 'gone':
@@ -3132,7 +3240,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
         await closeAnyPopupsForAWhile(page); // 나이스와 동일한 이유
         targetPage = page;
       } else {
-        targetPage = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password });
+        targetPage = await goToPortalMenu(page, 'G-ONE', { fallbackUrl: GONE_URL_BY_SUBDOMAIN[subdomain] || null, password, subdomain });
       }
       break;
     // (신규, 사용자 요청) 교직원홈페이지/e-DASAN현장지원/G-인사이트/하이코칭 - 단순히 포털 홈
@@ -3140,18 +3248,18 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     // K-에듀파인/G-ONE과 같은 SERVICE_SYSTEM 등록 없이(targetSystem=null, portal_home과 동일한
     // 방식) 매번 goToPortalMenu만 호출한다.
     case 'staff_home':
-      targetPage = await goToPortalMenu(page, '교직원홈페이지', { fallbackUrl: STAFF_HOME_URL_BY_SUBDOMAIN[subdomain] || null, password });
+      targetPage = await goToPortalMenu(page, '교직원홈페이지', { fallbackUrl: STAFF_HOME_URL_BY_SUBDOMAIN[subdomain] || null, password, subdomain });
       break;
     case 'edasan':
-      targetPage = await goToPortalMenu(page, 'e-DASAN현장지원', { fallbackUrl: EDASAN_URL_BY_SUBDOMAIN[subdomain] || null, password });
+      targetPage = await goToPortalMenu(page, 'e-DASAN현장지원', { fallbackUrl: EDASAN_URL_BY_SUBDOMAIN[subdomain] || null, password, subdomain });
       break;
     case 'ginsight':
       // G-인사이트 실측 URL(id 속성)엔 로그인마다 바뀌는 1회용 SSO 토큰이 포함돼 있어(실측 확인)
       // fallback으로 쓸 수 없다 - 포털 홈 DOM에서 매번 새로 읽어야 하므로 fallbackUrl 없음.
-      targetPage = await goToPortalMenu(page, 'G-인사이트', { fallbackUrl: null, password });
+      targetPage = await goToPortalMenu(page, 'G-인사이트', { fallbackUrl: null, password, subdomain });
       break;
     case 'hicoaching':
-      targetPage = await goToPortalMenu(page, '하이코칭', { fallbackUrl: HICOACHING_URL_BY_SUBDOMAIN[subdomain] || null, password });
+      targetPage = await goToPortalMenu(page, '하이코칭', { fallbackUrl: HICOACHING_URL_BY_SUBDOMAIN[subdomain] || null, password, subdomain });
       break;
     case 'giahn':
       targetPage = await openGiahn(page, subdomain, password, alreadyInTargetSystem);
@@ -3387,8 +3495,13 @@ async function checkPortalDashboard(subdomain, password, browserProfile = null, 
       if (freshlyOpenedTab) {
         // page.close()가 트리거하는 'close' 리스너(openFreshTab/getPage에 등록됨)가
         // mainServiceTabs/sharedPage 정리는 알아서 해준다 - 여기서는 닫기만 한다.
+        // (버그 수정) 예전엔 여기서 그냥 page.close()를 기다렸는데, 이 탭이 로그인/포털 홈
+        // 사이 리다이렉트 루프에 걸려 있으면 close() 자체가 몇 분씩 걸려 이 호출 전체(그리고
+        // 그걸 순서대로 기다리는 runStartupAutoLaunch/결재 현황 자동 확인의 다음 단계까지)를
+        // 막았다(실측 확인: 2026-09-07 부팅 후 자동 실행이 5분 21초 멈춤). 타임아웃을 건
+        // 안전한 closePageSafely로 교체.
         console.log('[PortalPet] 포털 홈 진입 실패 - 방금 새로 연 탭을 정리함(탭 누적 방지):', e.message);
-        await page.close().catch(() => {});
+        await closePageSafely(page, { label: 'freshlyOpenedTab cleanup' });
       }
       throw e;
     }
