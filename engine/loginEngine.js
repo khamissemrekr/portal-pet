@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const os = require('node:os');
-const { app, shell } = require('electron');
+const { app } = require('electron');
 const {
   buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN,
   STAFF_HOME_URL_BY_SUBDOMAIN, EDASAN_URL_BY_SUBDOMAIN, HICOACHING_URL_BY_SUBDOMAIN,
@@ -2707,24 +2707,24 @@ if ($foundHandle -ne [IntPtr]::Zero) {
   }
 }
 
-async function tryLaunchBrityMessengerDirectly(popup) {
-  try {
-    // (버그 수정) waitForSelector 기본값은 state:'visible'인데, 이 iframe은 페이지 자체가
-    // style="display: none;"으로 처음부터 숨겨서 쓰는 것(사용자가 확인해준 페이지 소스)이라
-    // 절대 "보이는" 상태가 될 수 없다 - 매번 5초 타임아웃으로 실패하고 있었다(사용자 재현
-    // 로그: "5 × locator resolved to hidden <iframe ...>"). DOM에 존재하기만 하면(attached)
-    // src 속성은 읽을 수 있으니 visible 요구를 없앤다.
-    const handle = await popup.waitForSelector('iframe[src^="brityaltsso://"]', { timeout: 5000, state: 'attached' });
-    const href = await handle.getAttribute('src');
-    if (!href) return false;
-    await shell.openExternal(href);
-    console.log('[PortalPet] brityaltsso:// 링크를 페이지에서 직접 추출해 메신저 실행 (고정 대기 없이)');
-    return true;
-  } catch (e) {
-    console.log('[PortalPet] brityaltsso:// 링크 직접 추출 실패(non-fatal, 기존 방식으로 대체):', e.message);
-    return false;
-  }
-}
+/**
+ * (버그 수정, 사용자 재현: 메신저 창이 "Brity Messenger에서 로그아웃되었습니다" 상태로 멈춤)
+ * Brity 메신저 자체 Launcher 로그(C:\BrityWorks\BrityMessenger\Launcher\log\*.log)를 직접 확인한
+ * 결과, 메신저를 켤 때마다 Launcher.exe가 7초 안팎 간격으로 "두 번" 뜨고 있었다 - 매번 서로 다른
+ * 1회용 SSO 티켓을 새로 발급받아 각각 BrityMessenger.exe를 실행하려 시도하며, 두 번째 시도는
+ * "Brity Messenger is exist already / There is already running client" 에러를 남기면서도 그대로
+ * 강행한다. 원인은 brityaltsso:// 프로토콜이 두 경로로 동시에 트리거되고 있었기 때문이다:
+ *   ① authorizeBrityMessengerProtocol로 미리 "항상 허용"해둔 크롬이, 브리지 페이지의 숨은
+ *      iframe(src="brityaltsso://...")을 스스로 감지해 확인창 없이 자동으로 여는 경로(원래부터
+ *      있던, 유일한 정상 경로)
+ *   ② 바로 아래 있던 이 함수가 같은 iframe의 src를 직접 읽어 shell.openExternal()로 "한 번 더"
+ *      실행하던 경로(나중에 "고정 대기 없이 빠르게"라는 속도 최적화로 추가된 것)
+ * 두 경로가 거의 동시에 서로 다른 1회용 티켓을 소모하며 레이스를 일으켜, 서버 쪽 로그인 세션이
+ * 꼬여 메신저가 로그아웃 상태로 뜨는 것으로 보인다(매일 이중 실행 자체는 있었지만 타이밍에 따라
+ * 대부분은 우연히 넘어갔던 것으로 추정). ②를 완전히 없애 ①(크롬의 자동 실행) 하나만 남긴다 -
+ * 그래야 1회용 티켓도 한 번만 소모된다. 브리지 탭을 닫기 전 기다리는 시간은 그대로 유지해
+ * 크롬 -> OS -> Brity 메신저로 넘어갈 시간을 준다.
+ */
 
 // G-ONE 좌측 GNB(협업포탈 아이콘 바) - 사용자가 실측 HTML로 제공: 화면이 일정/메일 등으로
 // 바뀌어도 항상 떠 있는 <div class="nav"><ul><li><button aria-label="...">...</button> 목록.
@@ -2768,19 +2768,10 @@ async function clickAndFollowPopup(context, page, el, label) {
       // 미리 감시를 시작해서, 실제로 새 창이 전면에 뜨는 순간을 놓치지 않는다. 설정에서 끄면
       // (minimizeMessengerOnLaunchEnabled) 감시 자체를 시작하지 않는다.
       if (minimizeMessengerOnLaunchEnabled) minimizeNewlyOpenedNativeWindow();
-      // (개선) brityaltsso:// 링크를 직접 뽑아 shell.openExternal로 우리가 바로 실행할 수
-      // 있으면(tryLaunchBrityMessengerDirectly), 크롬의 커스텀 프로토콜 처리에 기대는 고정
-      // 대기가 필요 없다. 실패하면(화면 구성이 바뀌었을 가능성 등) 기존 방식대로 넉넉히
-      // 3초 기다린 뒤 닫는다 - 크롬 -> OS -> Brity 메신저 앱으로 넘어갈 시간이 부족하면
-      // (실측 확인: 로그상 정상 동작했는데도 메신저가 안 뜬 적 있음) 메신저가 안 뜰 수 있다.
-      const launchedDirectly = await tryLaunchBrityMessengerDirectly(popup);
-      // (버그 수정, 사용자 재현: 메신저 창에 "네트워크 연결이 불안정하여 로그아웃 되었습니다"
-      // 뜨며 로그인 실패) 다이렉트 실행(브리지 탭에서 brityaltsso:// 링크를 직접 추출해
-      // shell.openExternal로 여는 방식)이 성공하면 대기 없이 곧바로 브리지 탭을 닫았는데,
-      // 브리티 메신저의 로그인 핸드오프가 이 브리지 탭이 들고 있던 세션/쿠키가 살아있는 상태를
-      // 필요로 하는 것으로 보인다 - 탭을 너무 빨리 닫으면 핸드오프가 끝나기 전에 세션이 끊겨
-      // 메신저가 로그아웃 상태로 뜬다. 다이렉트로 열었을 때도 폴백 경로와 동일하게 잠시
-      // 기다렸다가 닫는다(속도보다 로그인 성공이 우선).
+      // (버그 수정) brityaltsso:// 실행은 크롬이 미리 허용해둔 프로토콜 연결로 스스로 처리하도록
+      // 맡긴다(위 tryLaunchBrityMessengerDirectly 제거 사유 주석 참고) - 여기서 직접 한 번 더
+      // 실행하지 않는다. 브리지 탭을 곧바로 닫으면 크롬 -> OS -> Brity 메신저로 넘어갈 시간이
+      // 부족해 메신저가 안 뜰 수 있어(실측 확인) 잠시 기다렸다가 닫는다(속도보다 로그인 성공이 우선).
       await popup.waitForTimeout(3000).catch(() => {});
       await closePageSafely(popup, { label: 'messenger bridge tab' });
       return page;
