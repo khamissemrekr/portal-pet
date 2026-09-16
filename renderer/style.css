@@ -58,8 +58,9 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 
 #panel {
   /* height는 고정값이 아니라 콘텐츠에 맞춰 자연스럽게 늘어나게 auto로 둔다 - 실제 창 높이는
-     renderer.js가 이 콘텐츠 높이를 측정해서 main.js에 알려주면 그만큼 다시 맞춰준다. */
-  width: 300px; height: auto;
+     renderer.js가 이 콘텐츠 높이를 측정해서 main.js에 알려주면 그만큼 다시 맞춰준다.
+     width는 자주 가는 사이트 목록이 2열로 바뀌면서(라벨 잘림 방지) 늘려잡았다. */
+  width: 340px; height: auto;
   background:
     linear-gradient(155deg, rgba(255, 255, 255, calc(var(--panel-alpha, 0.92) * 0.35)) 0%, rgba(255, 255, 255, 0) 45%),
     rgba(var(--glass-tint), var(--panel-alpha, 0.92));
@@ -143,15 +144,17 @@ html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; f
 #custom-links-wrap { margin-top: 8px; }
 #custom-links-wrap.hidden { display: none; }
 .section-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+/* (수정) 사이트를 여러 개 저장하면 라벨이 잘리는 문제 - 1열 대신 2열 그리드로 배치해서
+   한 항목이 쓸 수 있는 가로폭을 넓히고, 세로 스크롤 없이 더 많은 항목이 한눈에 보이게 한다. */
 #custom-links {
-  display: flex; flex-direction: column; gap: 6px;
-  max-height: 90px; overflow-y: auto;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  max-height: 152px; overflow-y: auto;
 }
 .custom-link-btn {
   background: rgba(var(--glass-tint), calc(var(--panel-alpha, 0.92) * 0.55)); color: var(--text-primary);
   border: 1px solid var(--glass-border); border-radius: 8px;
   padding: 6px 8px; font-size: 11.5px; cursor: pointer; text-align: left;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .custom-link-btn:hover { background: rgba(var(--glass-tint), calc(var(--panel-alpha, 0.92) * 0.8)); }
 .custom-link-btn:active { background: rgba(var(--glass-tint), var(--panel-alpha, 0.92)); }

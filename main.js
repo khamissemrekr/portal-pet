@@ -48,7 +48,7 @@ if (process.platform === 'win32') {
 
 // ===== 설정 =====
 const PET_SIZE = 96;          // 대기 상태 캐릭터 크기(px)
-const PANEL_WIDTH = 300;      // 펼침 패널 폭(px) - 3열 메뉴 구조라 기존보다 넓힘
+const PANEL_WIDTH = 340;      // 펼침 패널 폭(px) - 자주 가는 사이트 2열 배치로 style.css #panel 폭을 늘려 맞춤
 const PANEL_HEIGHT = 360;     // 펼침 패널 높이(px)
 const EDGE_MARGIN = 8;        // 화면 가장자리에서 살짝 보이는 여백(px), 미니모드일 때
 const HOVER_POLL_MS = 150;
