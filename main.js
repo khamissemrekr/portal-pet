@@ -698,16 +698,49 @@ async function runStartupAutoLaunch() {
   if (config.autoLaunchSchedule) steps.push('gone_schedule');
 
   for (const serviceKey of steps) {
-    try {
-      console.log(`[PortalPet] 시작 시 자동 실행: ${serviceKey}`);
-      await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
-        minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
-        neisRoleLabel: resolveNeisRoleLabel(config),
-        certUserName: config.certUserName || '',
-        popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
-      });
-    } catch (err) {
-      console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);
+    // (신규, 사용자 재현: 부팅 후 자동 실행에서만 메신저 로그인이 조용히 실패) 메신저(gone_msg)는
+    // launchService가 끝나도 "브리지 탭이 정상적으로 닫혔다"만 확인할 뿐, 그 뒤에 뜨는 별개의
+    // 네이티브 앱(Brity 메신저)이 실제로 로그인에 성공했는지는 검증하지 않는다 - 부팅 직후에는
+    // 그 앱 자신이 아직 초기화 중이라 조용히 실패할 수 있다(waitForSystemToSettleIfJustBooted
+    // 주석 참고). verifyBrityMessengerLaunchOutcome으로 실패 신호(창이 끝내 안 뜸 / Launcher
+    // 중복 실행·"already running client" 로그)를 확인해서, 실패로 보일 때만 한 번 더 시도한다.
+    // 신호를 아예 못 잡은 경우(checked:false)는 "성공했는지 몰라서"이지 "실패를 확인해서"가
+    // 아니므로 재시도하지 않는다 - 이미 성공한 상태에서 재시도하면 두 경로가 동시에 SSO 티켓을
+    // 소모하는 그 이중 실행 레이스(바로 위 launchService 안의 버그 수정 주석 참고)를 스스로
+    // 재현하게 되기 때문이다.
+    const maxAttempts = serviceKey === 'gone_msg' ? 2 : 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const attemptStartedAt = new Date();
+      try {
+        console.log(`[PortalPet] 시작 시 자동 실행: ${serviceKey}${attempt > 1 ? ` (재시도 ${attempt}/${maxAttempts})` : ''}`);
+        await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
+          minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
+          neisRoleLabel: resolveNeisRoleLabel(config),
+          certUserName: config.certUserName || '',
+          popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
+        });
+      } catch (err) {
+        console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);
+        break; // launchService 자체가 던진 에러는 재시도해도 같은 이유로 또 실패할 가능성이 높음
+      }
+
+      if (serviceKey !== 'gone_msg') break;
+
+      const outcome = await loginEngine.verifyBrityMessengerLaunchOutcome({ timeoutMs: 15000, sinceTime: attemptStartedAt });
+      if (!outcome.checked) {
+        console.log('[PortalPet] 메신저 로그인 성공 여부를 확인할 수 없음 - 재시도하지 않고 넘어감');
+        break;
+      }
+      if (outcome.windowFound && !outcome.duplicateDetected) {
+        console.log('[PortalPet] 메신저 로그인 확인됨');
+        break;
+      }
+      if (attempt < maxAttempts) {
+        console.log(`[PortalPet] 메신저 로그인 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 잠시 뒤 재시도`);
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      } else {
+        console.log(`[PortalPet] 메신저 로그인 재시도 후에도 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 더 이상 재시도하지 않음`);
+      }
     }
   }
 }

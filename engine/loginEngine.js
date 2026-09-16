@@ -2726,6 +2726,115 @@ if ($foundHandle -ne [IntPtr]::Zero) {
  * 크롬 -> OS -> Brity 메신저로 넘어갈 시간을 준다.
  */
 
+/**
+ * (신규, 사용자 재현: 부팅 후 시작프로그램 자동 실행 때만 메신저 로그인이 조용히 실패) 부팅
+ * 직후에는 Brity 메신저 자신도 아직 초기화 중이라 brityaltsso:// 핸드오프를 못 받아 로그인이
+ * 실패할 수 있는데, launchService 쪽은 브리지 탭이 정상적으로 닫히기만 하면 그냥 "성공"으로
+ * 간주하고 끝난다 - 실제로 네이티브 앱이 로그인에 성공했는지는 전혀 검증하지 않는다. 이 함수는
+ * launchService(gone_msg) 호출이 끝난 뒤 별도로 OS 상태를 폴링해서 실패 신호가 있었는지 확인한다.
+ *
+ * "성공"을 뜻하는 로그 문구는 실측하지 못해 모르지만(그런 여지를 남겨둔 문구를 찾지 못함), 바로
+ * 위 이중 실행 버그에서 실측으로 확인된 "실패/이상 신호" 두 가지는 명확하다:
+ *   ① BrityMessenger.exe 프로세스가 창을 띄우는 데까지 아예 도달하지 못함(타임아웃) - 부팅 직후
+ *      다른 시작프로그램이 자리잡기 전이면 이 경우가 흔하다.
+ *   ② Launcher.exe가 짧은 간격으로 두 번 이상 뜨거나(중복 실행), Launcher 로그에
+ *      "already running client" / "exist already"가 찍힘 - 위 주석에서 실측된 레이스 신호로,
+ *      이게 보이면 로그인 세션이 꼬여 로그아웃 상태로 뜰 가능성이 높다.
+ * 이 두 신호 중 하나라도 감지되면 호출 쪽(main.js)이 launchService(gone_msg)를 한 번 더
+ * 시도하도록(=크롬이 새 SSO 티켓을 다시 받아 메신저를 다시 실행하도록) 알려준다. 반대로 신호를
+ * 전혀 못 잡았다면("모른다"는 뜻이지 "성공했다"는 확증이 아니므로) checked:false를 돌려줘 호출
+ * 쪽이 함부로 재시도하지 않게 한다 - 정말 성공한 상태에서 괜히 재시도하면 바로 위에서 고친 그
+ * 이중 실행 레이스를 스스로 재현하게 되기 때문이다.
+ */
+function verifyBrityMessengerLaunchOutcome({ timeoutMs = 15000, sinceTime = new Date() } = {}) {
+  if (process.platform !== 'win32') return Promise.resolve({ checked: false, windowFound: false, duplicateDetected: false });
+
+  const sinceIso = sinceTime.toISOString();
+  const script = `
+$ErrorActionPreference = "SilentlyContinue"
+$deadline = (Get-Date).AddMilliseconds(${timeoutMs})
+$sinceTime = [DateTime]::Parse("${sinceIso}").ToLocalTime()
+$logDir = "C:\\BrityWorks\\BrityMessenger\\Launcher\\log"
+
+$windowFound = $false
+$duplicateDetected = $false
+
+while ((Get-Date) -lt $deadline) {
+  Start-Sleep -Milliseconds 500
+
+  $msgProcs = Get-Process -Name "BrityMessenger" -ErrorAction SilentlyContinue
+  foreach ($p in $msgProcs) {
+    if ($p.MainWindowHandle -ne [IntPtr]::Zero) { $windowFound = $true }
+  }
+
+  $launcherStarts = 0
+  Get-Process -Name "Launcher" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+      if ($_.StartTime -ge $sinceTime -and $_.Path -like "*BrityWorks*") { $launcherStarts += 1 }
+    } catch {}
+  }
+  if ($launcherStarts -ge 2) { $duplicateDetected = $true }
+
+  if (Test-Path $logDir) {
+    Get-ChildItem -Path $logDir -Filter "*.log" -ErrorAction SilentlyContinue |
+      Where-Object { $_.LastWriteTime -ge $sinceTime } |
+      ForEach-Object {
+        $tail = Get-Content -Path $_.FullName -Tail 200 -ErrorAction SilentlyContinue
+        if ($tail -match "already running client" -or $tail -match "exist already") { $duplicateDetected = $true }
+      }
+  }
+
+  if ($windowFound -and -not $duplicateDetected) { break }
+}
+
+$result = @{ windowFound = $windowFound; duplicateDetected = $duplicateDetected } | ConvertTo-Json -Compress
+Write-Output "RESULT:$result"
+`;
+
+  return new Promise((resolve) => {
+    let scriptPath = null;
+    try {
+      scriptPath = path.join(os.tmpdir(), `portalpet-verify-messenger-${Date.now()}.ps1`);
+      fs.writeFileSync(scriptPath, script, 'utf8');
+      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      let stdout = '';
+      child.stdout.on('data', (buf) => { stdout += buf.toString(); });
+      child.stderr.on('data', (buf) => console.log('[PortalPet] 메신저 로그인 확인 스크립트 stderr:', buf.toString().trim()));
+      const cleanup = () => { if (scriptPath) fs.unlink(scriptPath, () => {}); };
+      child.on('error', (e) => {
+        console.log('[PortalPet] 메신저 로그인 확인 스크립트 실행 실패(non-fatal):', e.message);
+        cleanup();
+        resolve({ checked: false, windowFound: false, duplicateDetected: false });
+      });
+      child.on('exit', () => {
+        cleanup();
+        const match = stdout.match(/RESULT:(\{.*\})/);
+        if (!match) {
+          console.log('[PortalPet] 메신저 로그인 확인 결과를 못 받음(스크립트 출력 없음/파싱 실패) - 원본:', JSON.stringify(stdout));
+          resolve({ checked: false, windowFound: false, duplicateDetected: false });
+          return;
+        }
+        try {
+          const parsed = JSON.parse(match[1]);
+          const outcome = { checked: true, windowFound: !!parsed.windowFound, duplicateDetected: !!parsed.duplicateDetected };
+          console.log('[PortalPet] 메신저 로그인 확인 결과:', outcome);
+          resolve(outcome);
+        } catch (e) {
+          console.log('[PortalPet] 메신저 로그인 확인 결과 JSON 파싱 실패:', e.message);
+          resolve({ checked: false, windowFound: false, duplicateDetected: false });
+        }
+      });
+    } catch (e) {
+      console.log('[PortalPet] 메신저 로그인 확인 스크립트 준비 실패(non-fatal):', e.message);
+      if (scriptPath) fs.unlink(scriptPath, () => {});
+      resolve({ checked: false, windowFound: false, duplicateDetected: false });
+    }
+  });
+}
+
 // G-ONE 좌측 GNB(협업포탈 아이콘 바) - 사용자가 실측 HTML로 제공: 화면이 일정/메일 등으로
 // 바뀌어도 항상 떠 있는 <div class="nav"><ul><li><button aria-label="...">...</button> 목록.
 // 상단 공용 네비게이션 바(.cl-navigationbar-text)는 화면에 따라 없을 수 있지만(실측 확인:
@@ -3714,4 +3823,6 @@ module.exports = {
   checkPortalDashboard: (...args) => runQueued(() => checkPortalDashboard(...args)),
   checkFieldTripApplyPending: (...args) => runQueued(() => checkFieldTripApplyPending(...args)),
   checkFieldTripReportPending: (...args) => runQueued(() => checkFieldTripReportPending(...args)),
+  // (검증 전용 - 브라우저 자동화 큐와 무관하게 OS 프로세스/로그만 폴링하므로 runQueued로 감싸지 않는다)
+  verifyBrityMessengerLaunchOutcome: (...args) => verifyBrityMessengerLaunchOutcome(...args),
 };
