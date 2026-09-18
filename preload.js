@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('portalPet', {
   // channel: 'chrome' | 'msedge' - 설정 창에서 브라우저를 바꿀 때마다 그 브라우저의 프로필 목록을 다시 불러온다.
   listBrowserProfiles: (channel) => ipcRenderer.invoke('list-browser-profiles', channel),
   getConfig: () => ipcRenderer.invoke('get-config'),
+  // 설정 창 "화면" 탭 - 캐릭터 이미지(평상시/드래그할 때/오래 안 쓸 때) 파일 선택 창을 연다.
+  chooseCharacterImage: (poseKey) => ipcRenderer.invoke('choose-character-image', poseKey),
   // 나이스 미결/협조함, K-에듀파인 결재(긴급) 자동 확인 결과(주기적으로 main.js가 보냄).
   onPortalDashboardUpdated: (callback) => ipcRenderer.on('portal-dashboard-updated', (_evt, data) => callback(data)),
   // 교외체험학습신청서관리 접수대기/미상신 건수 자동 확인 결과(결재 현황과 별도 주기).

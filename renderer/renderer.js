@@ -45,7 +45,7 @@ let launching = false; // 요청 진행 중 중복 클릭(중복 브라우저 �
 
 // ===== 캐릭터 포즈 =====
 // theme/tiger_actions/ 에 사용자가 직접 넣어둔 호랑이 캐릭터 이미지로 상태별 포즈를 교체.
-const POSES = {
+const DEFAULT_POSES = {
   idle: '../theme/tiger_actions/tiger_idle.png',
   dragging: '../theme/tiger_actions/tiger_grooming.png', // 편안하게 들려있는 느낌
   working: '../theme/tiger_actions/tiger_pounce.png',    // 집중해서 몸을 낮춘 포즈
@@ -53,12 +53,16 @@ const POSES = {
   error: '../theme/tiger_actions/tiger_yawning.png',     // 놀란 듯 양팔을 든 포즈
   sleep: '../theme/tiger_actions/tiger_sleeping.png',    // 장시간 미사용 시(아래 참고)
 };
+// (신규, 사용자 요청) 설정 화면에서 캐릭터 이미지를 올리면 이 값이 바뀐다 - applyCharacterImages 참고.
+let POSES = { ...DEFAULT_POSES };
+let currentPose = 'idle'; // 설정을 바꿔 POSES가 갱신됐을 때 지금 보이는 포즈를 다시 그리기 위해 기록
 let poseResetTimer = null;
 function setPose(pose, { autoResetMs = 0 } = {}) {
+  currentPose = pose;
   petFaceEl.src = POSES[pose] || POSES.idle;
   if (poseResetTimer) { clearTimeout(poseResetTimer); poseResetTimer = null; }
   if (autoResetMs > 0) {
-    poseResetTimer = setTimeout(() => { petFaceEl.src = POSES.idle; }, autoResetMs);
+    poseResetTimer = setTimeout(() => { currentPose = 'idle'; petFaceEl.src = POSES.idle; }, autoResetMs);
   }
   scheduleSleep(); // 어떤 포즈로든 활동이 있었으니 잠들기까지 남은 시간을 다시 채운다
 }
@@ -68,9 +72,30 @@ const SLEEP_AFTER_MS = 3 * 60 * 1000;
 let sleepTimer = null;
 function scheduleSleep() {
   if (sleepTimer) clearTimeout(sleepTimer);
-  sleepTimer = setTimeout(() => { petFaceEl.src = POSES.sleep; }, SLEEP_AFTER_MS);
+  sleepTimer = setTimeout(() => { currentPose = 'sleep'; petFaceEl.src = POSES.sleep; }, SLEEP_AFTER_MS);
 }
 scheduleSleep();
+
+// 설정 창에서 올린 캐릭터 이미지(평상시/드래그할 때/오래 안 쓸 때)로 기본 호랑이 이미지를
+// 대체한다. 셋 다 올릴 필요는 없고, 올리지 않은 상태는 그대로 기본 이미지를 쓴다. 작업 중/
+// 성공/실패 포즈는 따로 설정할 수 없으니 - "평상시" 이미지를 올렸다면 그걸로 통일해서 원래
+// 호랑이 그림이 순간적으로 섞여 보이는 이질감을 없앤다.
+function toFileUrl(absPath) {
+  return 'file:///' + absPath.replace(/\\/g, '/');
+}
+function applyCharacterImages(config) {
+  const custom = config?.characterImages || {};
+  const idleSrc = custom.idle ? toFileUrl(custom.idle) : DEFAULT_POSES.idle;
+  POSES = {
+    idle: idleSrc,
+    dragging: custom.dragging ? toFileUrl(custom.dragging) : DEFAULT_POSES.dragging,
+    sleep: custom.sleep ? toFileUrl(custom.sleep) : DEFAULT_POSES.sleep,
+    working: custom.idle ? idleSrc : DEFAULT_POSES.working,
+    success: custom.idle ? idleSrc : DEFAULT_POSES.success,
+    error: custom.idle ? idleSrc : DEFAULT_POSES.error,
+  };
+  petFaceEl.src = POSES[currentPose] || POSES.idle;
+}
 
 function showError(message) {
   errorBox.textContent = message;
@@ -376,6 +401,7 @@ async function loadCustomLinks() {
   applyPanelOpacity(config);
   applyTheme(config);
   applyMenuVisibility(config);
+  applyCharacterImages(config);
   resizePanelToContent(); // 설정 변경으로 표시되는 항목이 바뀌면 창 높이도 다시 맞춘다.
 }
 loadCustomLinks();

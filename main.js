@@ -6,6 +6,7 @@
 const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell, Notification, dialog } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
+const fs = require('node:fs');
 const { autoUpdater } = require('electron-updater');
 const credentialStore = require('./engine/credentialStore');
 const loginEngine = require('./engine/loginEngine');
@@ -53,6 +54,13 @@ const PANEL_HEIGHT = 360;     // 펼침 패널 높이(px)
 const EDGE_MARGIN = 8;        // 화면 가장자리에서 살짝 보이는 여백(px), 미니모드일 때
 const HOVER_POLL_MS = 150;
 const RELEASES_URL = 'https://github.com/khamissemrekr/portal-pet/releases'; // 자동 확인 실패 시 안내용
+
+// (신규, 사용자 요청) 설정 화면 "화면" 탭에서 배경이 투명한 이미지를 올려 기본 호랑이 캐릭터
+// 대신 쓸 수 있게 한다. 평상시/드래그할 때/오래 안 쓸 때(대기) 3가지만 개별 지정 가능 - 실행
+// 중/성공/실패 포즈는 renderer.js에서 "평상시" 이미지를 설정했을 때만 그걸로 통일해 이질감을
+// 없앤다(원본 파일이 나중에 옮겨지거나 지워져도 안 깨지도록 앱 데이터 폴더에 복사해 둔다).
+const CHARACTER_IMAGE_POSES = ['idle', 'dragging', 'sleep'];
+const CHARACTER_IMAGES_DIR = path.join(app.getPath('userData'), 'PortalPet', 'character-images');
 
 let win;
 let setupWin;
@@ -329,6 +337,25 @@ ipcMain.handle('get-config', () => ({
   autoStartOnLogin: getAutoStartOnLogin(),
 }));
 
+// 설정 창 "화면" 탭에서 캐릭터 이미지(평상시/드래그할 때/오래 안 쓸 때)를 고를 때 쓰는 파일
+// 선택 창. 고른 파일을 앱 데이터 폴더로 복사해두고 그 경로를 돌려준다 - 저장(save-setup)은
+// 이 경로를 config.json에 넣기만 하면 된다.
+ipcMain.handle('choose-character-image', async (evt, poseKey) => {
+  if (!CHARACTER_IMAGE_POSES.includes(poseKey)) return { ok: false };
+  const parentWin = BrowserWindow.fromWebContents(evt.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(parentWin, {
+    title: '캐릭터 이미지 선택 (배경이 투명한 PNG 권장)',
+    properties: ['openFile'],
+    filters: [{ name: '이미지', extensions: ['png', 'gif', 'webp', 'jpg', 'jpeg'] }],
+  });
+  if (canceled || !filePaths[0]) return { ok: false };
+  const src = filePaths[0];
+  fs.mkdirSync(CHARACTER_IMAGES_DIR, { recursive: true });
+  const dest = path.join(CHARACTER_IMAGES_DIR, `${poseKey}-${Date.now()}${path.extname(src).toLowerCase()}`);
+  fs.copyFileSync(src, dest);
+  return { ok: true, path: dest };
+});
+
 ipcMain.handle('toggle-panel', () => togglePanel());
 // 메뉴 하단의 톱니 아이콘에서 설정 창을 바로 열 수 있도록(트레이 메뉴를 거치지 않고).
 ipcMain.handle('open-setup-window', () => openSetupWindow());
@@ -531,6 +558,18 @@ function sanitizeCustomLinks(customLinks) {
     .map((l) => ({ label: l.label, url: /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}` }));
 }
 
+// choose-character-image가 돌려준 경로(우리 앱 데이터 폴더 안)만 신뢰한다 - 그 외 값(오래된
+// 렌더러/조작된 값 등)은 빈 문자열로 되돌려 "기본 이미지 사용"으로 처리한다.
+function sanitizeCharacterImages(characterImages) {
+  const result = {};
+  for (const pose of CHARACTER_IMAGE_POSES) {
+    const value = characterImages && typeof characterImages === 'object' ? characterImages[pose] : '';
+    const normalized = typeof value === 'string' ? value : '';
+    result[pose] = normalized && path.dirname(normalized) === CHARACTER_IMAGES_DIR ? normalized : '';
+  }
+  return result;
+}
+
 // (신규, 사용자 요청) 캐릭터 메뉴에서 개별적으로 숨길 수 있는 하위 메뉴 key 전체 목록 -
 // renderer.js의 COLUMNS와 항목이 동일해야 한다(거기서 실제 버튼을 만든다). 여기서는 설정
 // 창이 보낸 값 중 이 목록에 없는 값(오래된 렌더러/조작된 값)을 걸러내는 용도로만 쓴다.
@@ -560,6 +599,7 @@ ipcMain.handle('save-setup', (_evt, {
   fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
   neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems, popupAutoCloseEnabled, uiTheme,
+  characterImages,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
@@ -601,6 +641,16 @@ ipcMain.handle('save-setup', (_evt, {
     ? neisRoleMode
     : (previous.neisRoleMode ?? '학급담임');
 
+  const safeCharacterImages = sanitizeCharacterImages(characterImages);
+  // 이전에 쓰던 커스텀 이미지가 이번에 바뀌었거나 "기본으로" 되돌려졌으면, 더는 참조되지 않는
+  // 파일이 앱 데이터 폴더에 계속 쌓이지 않도록 지운다.
+  for (const pose of CHARACTER_IMAGE_POSES) {
+    const oldPath = previous.characterImages?.[pose];
+    if (oldPath && oldPath !== safeCharacterImages[pose] && path.dirname(oldPath) === CHARACTER_IMAGES_DIR) {
+      try { fs.unlinkSync(oldPath); } catch { /* 이미 없으면 무시 */ }
+    }
+  }
+
   const config = {
     region,
     subdomain: subdomain || REGIONS[region] || '',
@@ -631,6 +681,7 @@ ipcMain.handle('save-setup', (_evt, {
     // 잘못 건드릴 가능성 자체를 완전히 차단할 수 있다.
     popupAutoCloseEnabled: popupAutoCloseEnabled !== false,
     uiTheme: uiTheme === 'dark' ? 'dark' : 'light', // 화면 테마(라이트/다크) - 설정 창/정보 창/캐릭터 메뉴 모두 이 값을 따른다.
+    characterImages: safeCharacterImages, // 사용자가 올린 캐릭터 이미지(평상시/드래그할 때/오래 안 쓸 때) - 비어있으면 기본 호랑이 이미지 사용
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();

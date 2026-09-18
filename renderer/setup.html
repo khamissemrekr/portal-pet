@@ -95,6 +95,22 @@
   .link-row button { width: auto; margin-top: 0; padding: 2px 8px; flex-shrink: 0; background: var(--danger-bg); color: var(--danger); box-shadow: none; }
   .link-row button:hover { background: rgba(214, 69, 80, 0.2); filter: none; }
 
+  /* ===== 캐릭터 이미지 커스터마이즈 - 투명 배경 미리보기가 잘 보이도록 체커보드 배경을 쓴다. */
+  .character-image-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .character-image-preview {
+    width: 40px; height: 40px; border-radius: 8px; object-fit: contain; flex-shrink: 0; display: none;
+    background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
+    background-size: 10px 10px; background-position: 0 0, 0 5px, 5px -5px, -5px 0;
+    border: 1px solid var(--glass-border);
+  }
+  .character-image-label { flex: 1; font-size: 12px; color: var(--text-primary); }
+  .character-image-row button {
+    width: auto; margin-top: 0; padding: 6px 10px; flex-shrink: 0; font-size: 12px;
+  }
+  .character-image-row .reset-btn { background: var(--danger-bg); color: var(--danger); box-shadow: none; display: none; }
+  .character-image-row .reset-btn:hover { background: rgba(214, 69, 80, 0.2); filter: none; }
+
   /* ===== 카테고리 탭 - 항목이 많아서(사용자 피드백) 한 화면에 다 몰아두지 않고 계정/브라우저/
      화면/자동확인/시작 5개 프레임으로 나눈다. 탭을 눌러도 저장 버튼은 항상 카드 하단에 고정. */
   .tabs { display: flex; gap: 6px; margin-top: 14px; }
@@ -276,6 +292,10 @@
         <input id="panelOpacity" type="range" min="20" max="100" step="1" value="92" />
       </label>
       <div class="note">캐릭터를 클릭했을 때 펼쳐지는 메뉴 배경의 투명도입니다. 낮출수록 더 투명해집니다.</div>
+
+      <label class="section-title">캐릭터 이미지</label>
+      <div id="characterImageList"></div>
+      <div class="note">배경이 투명한 이미지를 올리면 기본 호랑이 캐릭터 대신 사용합니다. 셋 다 올릴 필요는 없고, 올리지 않은 상태는 그대로 기본 이미지를 씁니다.</div>
     </div>
 
     <!-- ===== 자동 확인 / 알림 ===== -->
@@ -475,6 +495,69 @@
       });
     });
 
+    // ===== 캐릭터 이미지 커스터마이즈 =====
+    // renderer.js의 POSES 중 사용자가 직접 고를 수 있는 3가지만 노출한다(평상시/드래그할 때/
+    // 오래 안 쓸 때) - 작업 중/성공/실패는 순간적으로 스쳐가는 포즈라 renderer.js가 "평상시"
+    // 이미지를 설정했을 때 자동으로 같이 대체한다.
+    const CHARACTER_POSES = [
+      { key: 'idle', label: '평상시(기본)' },
+      { key: 'dragging', label: '드래그할 때' },
+      { key: 'sleep', label: '오래 안 쓸 때(대기)' },
+    ];
+    let characterImages = { idle: '', dragging: '', sleep: '' };
+    const characterImageList = document.getElementById('characterImageList');
+    const characterImageEls = {};
+    function toFileUrl(absPath) {
+      return 'file:///' + absPath.replace(/\\/g, '/');
+    }
+    function updateCharacterImageRow(key) {
+      const { img, resetBtn } = characterImageEls[key];
+      const value = characterImages[key];
+      if (value) {
+        img.src = toFileUrl(value);
+        img.style.display = 'block';
+        resetBtn.style.display = 'inline-block';
+      } else {
+        img.removeAttribute('src');
+        img.style.display = 'none';
+        resetBtn.style.display = 'none';
+      }
+    }
+    CHARACTER_POSES.forEach(({ key, label }) => {
+      const row = document.createElement('div');
+      row.className = 'character-image-row';
+      const img = document.createElement('img');
+      img.className = 'character-image-preview';
+      img.alt = label;
+      const labelEl = document.createElement('span');
+      labelEl.className = 'character-image-label';
+      labelEl.textContent = label;
+      const chooseBtn = document.createElement('button');
+      chooseBtn.type = 'button';
+      chooseBtn.textContent = '이미지 선택';
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'reset-btn';
+      resetBtn.textContent = '기본으로';
+      chooseBtn.addEventListener('click', async () => {
+        const result = await window.portalPet.chooseCharacterImage(key);
+        if (result?.ok) {
+          characterImages[key] = result.path;
+          updateCharacterImageRow(key);
+        }
+      });
+      resetBtn.addEventListener('click', () => {
+        characterImages[key] = '';
+        updateCharacterImageRow(key);
+      });
+      row.appendChild(img);
+      row.appendChild(labelEl);
+      row.appendChild(chooseBtn);
+      row.appendChild(resetBtn);
+      characterImageList.appendChild(row);
+      characterImageEls[key] = { img, resetBtn };
+    });
+
     regionSelect.addEventListener('change', () => {
       customWrap.style.display = regionSelect.value === '__custom__' ? 'block' : 'none';
     });
@@ -625,6 +708,9 @@
       Object.entries(menuVisibilityInputs).forEach(([key, input]) => {
         input.checked = !hiddenMenuItems.has(key);
       });
+
+      characterImages = { idle: '', dragging: '', sleep: '', ...(config?.characterImages || {}) };
+      CHARACTER_POSES.forEach(({ key }) => updateCharacterImageRow(key));
     }
     init();
 
@@ -683,7 +769,7 @@
         fieldTripCheckTime1, fieldTripCheckTime2,
         fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
         panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
-        hiddenMenuItems, popupAutoCloseEnabled, uiTheme,
+        hiddenMenuItems, popupAutoCloseEnabled, uiTheme, characterImages,
       });
     });
   </script>
