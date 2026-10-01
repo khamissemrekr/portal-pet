@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PortalPet 사용 설명서</title>
+<meta name="description" content="호랑이 캐릭터 클릭 한 번으로 나이스·K-에듀파인·G-ONE에 자동 접속하는 업무포털 원클릭 프로그램, PortalPet 사용 설명서" />
+<link rel="icon" href="images/tiger.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #faf6f1;
+    --card: #ffffff;
+    --border: #eee4d8;
+    --text: #2b2520;
+    --muted: #7a6f66;
+    --accent: #d2652d;
+    --accent-dark: #b8521f;
+    --accent-soft: #fdeee4;
+    --chip: #f7f1ea;
+    --code: #f4eee7;
+    --shadow: 0 1px 2px rgba(60, 40, 20, 0.04), 0 6px 24px rgba(60, 40, 20, 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1916;
+      --card: #26221e;
+      --border: #3a332c;
+      --text: #f1ebe4;
+      --muted: #b0a59a;
+      --accent: #ec8550;
+      --accent-dark: #f39a6b;
+      --accent-soft: #3d2a1f;
+      --chip: #302a24;
+      --code: #332c26;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+    line-height: 1.75; font-size: 16px; word-break: keep-all;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 48px 16px 80px; }
+
+  header { text-align: center; margin-bottom: 40px; }
+  .app-icon {
+    width: 76px; height: 76px; margin: 0 auto 20px; border-radius: 20px;
+    background: linear-gradient(145deg, #ffd27a, #ffb347);
+    display: grid; place-items: center; box-shadow: 0 6px 18px rgba(230, 140, 40, 0.3);
+  }
+  .app-icon img { width: 58px; height: 58px; }
+  h1 { font-size: 30px; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.5px; }
+  h1 .plus { color: var(--accent); }
+  .tagline { color: var(--muted); margin: 0; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+    padding: 28px 24px; margin-bottom: 18px; box-shadow: var(--shadow);
+  }
+  .card > :first-child { margin-top: 0; }
+  .card > :last-child { margin-bottom: 0; }
+
+  .intro ul { padding-left: 20px; margin: 10px 0 22px; }
+  .intro li { margin: 6px 0; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    flex: 1 1 220px; display: block; text-align: center; padding: 14px 18px; border-radius: 12px;
+    font-weight: 700; text-decoration: none; transition: background .15s, transform .15s;
+  }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-dark); transform: translateY(-1px); }
+  .btn.secondary { background: var(--chip); color: var(--text); border: 1px solid var(--border); }
+  .btn.secondary:hover { background: var(--accent-soft); }
+
+  .toc h2 { margin-bottom: 16px; }
+  .toc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .toc-grid a {
+    display: block; padding: 9px 12px; border-radius: 10px; background: var(--chip);
+    color: var(--text); text-decoration: none; font-weight: 500; font-size: 15px;
+  }
+  .toc-grid a:hover { background: var(--accent-soft); color: var(--accent-dark); }
+
+  h2 { font-size: 22px; font-weight: 800; margin: 0 0 18px; display: flex; align-items: center; gap: 10px; }
+  .num {
+    flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-size: 14px; font-weight: 700; display: grid; place-items: center;
+  }
+  h3 { font-size: 18px; font-weight: 700; margin: 28px 0 10px; }
+  section { scroll-margin-top: 16px; }
+  p { margin: 10px 0; }
+  ol, ul { padding-left: 22px; }
+  li { margin: 5px 0; }
+  a { color: var(--accent); }
+  code, .kbd {
+    background: var(--code); border-radius: 6px; padding: 1px 7px; font-size: 0.92em;
+    font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  }
+
+  .note {
+    background: var(--accent-soft); border-radius: 12px; padding: 12px 16px; margin: 16px 0;
+    font-size: 15px;
+  }
+  .note strong { color: var(--accent-dark); }
+  .new {
+    display: inline-block; font-size: 11px; font-weight: 700; color: #fff; background: var(--accent);
+    border-radius: 999px; padding: 0 8px; margin-left: 6px; vertical-align: 2px; line-height: 18px;
+  }
+
+  .table-wrap { overflow-x: auto; margin: 14px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--chip); font-weight: 700; white-space: nowrap; }
+  td:first-child { font-weight: 600; min-width: 140px; }
+
+  figure { margin: 18px 0; text-align: center; }
+  figure img {
+    max-width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border);
+  }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .shots figure { margin: 0; }
+
+  details {
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin: 10px 0;
+    background: var(--card);
+  }
+  details[open] { background: var(--chip); }
+  summary { cursor: pointer; font-weight: 700; }
+  details p { margin: 10px 0 2px; }
+
+  footer { text-align: center; color: var(--muted); font-size: 14px; margin-top: 36px; }
+  .top-link { display: inline-block; margin-top: 10px; }
+
+  @media (max-width: 640px) {
+    .wrap { padding-top: 32px; }
+    h1 { font-size: 25px; }
+    .toc-grid { grid-template-columns: 1fr 1fr; }
+    .card { padding: 22px 18px; }
+  }
+  @media (max-width: 400px) {
+    .toc-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="top">
+
+  <header>
+    <div class="app-icon"><img src="images/tiger.png" alt="" /></div>
+    <h1>🐯 PortalPet 사용 설명서</h1>
+    <p class="tagline">캐릭터 클릭 한 번으로 나이스 · K-에듀파인 · G-ONE까지, 업무포털 원클릭 접속</p>
+  </header>
+
+  <div class="card intro">
+    <p><strong>PortalPet</strong>은 바탕화면에 떠 있는 호랑이 캐릭터로 업무 시스템에 바로 들어가게 해 주는 무료 Windows 프로그램이에요.</p>
+    <ul>
+      <li>🔐 <strong>자동 로그인</strong>: 인증서 로그인을 한 번만 하면 나이스·K-에듀파인·업무협업 G-ONE·교육데이터포털(교데통)에 자동으로 들어가요.</li>
+      <li>⚡ <strong>바로가기 버튼</strong>: 복무 신청, 출장 신청, 결재, 기안문·품의 작성 같은 자주 쓰는 화면을 버튼 하나로 열어요.</li>
+      <li>🔔 <strong>결재 알림</strong>: 결재·승인 대기 건수와 체험학습 신청서·보고서 접수 대기 건수를 알아서 확인해 배지로 보여 주고, 늘어나면 알려 줘요.</li>
+    </ul>
+    <div class="btn-row">
+      <a class="btn primary" href="https://github.com/khamissemrekr/portal-pet/releases/latest">최신 버전 내려받기 →</a>
+      <a class="btn secondary" href="#install">설치 방법 보기</a>
+    </div>
+  </div>
+
+  <nav class="card toc" aria-label="차례">
+    <h2>📑 차례</h2>
+    <div class="toc-grid">
+      <a href="#install">1. 설치하기</a>
+      <a href="#update">2. 업데이트</a>
+      <a href="#basic">3. 기본 사용법</a>
+      <a href="#badges">4. 결재 건수 알림</a>
+      <a href="#settings">5. 설정 화면</a>
+      <a href="#tray">6. 트레이 메뉴</a>
+      <a href="#faq">7. 자주 묻는 질문</a>
+      <a href="#contact">8. 문의</a>
+    </div>
+  </nav>
+
+  <section class="card" id="install">
+    <h2><span class="num">1</span>설치하기</h2>
+
+    <h3>내려받기</h3>
+    <p><a href="https://github.com/khamissemrekr/portal-pet/releases/latest">릴리즈 페이지</a>에서 최신 설치 파일 <code>PortalPet-Setup-x.x.x.exe</code>를 내려받아요.</p>
+    <div class="note">
+      <strong>“Windows의 PC 보호” 경고가 떠도 괜찮아요.</strong> 코드 서명 인증서 없이 배포해서 나오는 정상적인 경고예요. <span class="kbd">추가 정보</span> → <span class="kbd">실행</span>을 누르면 설치가 계속돼요.
+    </div>
+
+    <h3>설치</h3>
+    <ol>
+      <li>내려받은 설치 파일을 실행해요.</li>
+      <li>설치 대상(나만 / 모든 사용자)과 설치 위치를 고르면 설치가 진행돼요. 끝나면 바탕화면에 바로가기가 생겨요.</li>
+      <li>설치가 끝나면 PortalPet이 자동으로 실행되고, 작업표시줄 오른쪽 트레이에 아이콘이 나타나요.</li>
+    </ol>
+    <div class="shots">
+      <figure><img src="images/install-1.png" alt="설치 대상 선택 화면" loading="lazy" /><figcaption>설치 대상 선택</figcaption></figure>
+      <figure><img src="images/install-2.png" alt="설치 위치 선택 화면" loading="lazy" /><figcaption>설치 위치 선택</figcaption></figure>
+      <figure><img src="images/install-3.png" alt="설치 완료 화면" loading="lazy" /><figcaption>설치 완료</figcaption></figure>
+    </div>
+
+    <h3>처음 실행 - 초기 설정</h3>
+    <p>처음 실행하면(또는 저장된 비밀번호가 없으면) 설정 창이 자동으로 열려요. 아래 두 가지만 입력하고 <span class="kbd">저장</span>을 누르면 끝이에요.</p>
+    <ul>
+      <li><strong>지역</strong>: 지금은 경기도교육청만 지원해요.</li>
+      <li><strong>인증서 비밀번호</strong>: 공동인증서 로그인에 쓰는 비밀번호예요. 이 PC의 Windows 계정에서만 풀 수 있게 암호화해서 저장해요.</li>
+    </ul>
+    <p>브라우저, 자주 가는 사이트 같은 나머지 항목은 나중에 언제든 바꿀 수 있어요.</p>
+  </section>
+
+  <section class="card" id="update">
+    <h2><span class="num">2</span>업데이트</h2>
+    <p>설치 파일을 다시 내려받을 필요 없이 프로그램 안에서 바로 업데이트할 수 있어요.</p>
+    <p>프로그램을 켤 때마다 새 버전이 있는지 조용히 확인해요. 최신 버전이면 아무 알림 없이 넘어가고, 새 버전이 있을 때만 안내 창이 떠요. 직접 확인하려면 이렇게 하세요.</p>
+    <ol>
+      <li>작업표시줄 트레이의 PortalPet 아이콘을 오른쪽 클릭 → <span class="kbd">프로그램 정보</span></li>
+      <li><span class="kbd">새 버전 확인</span>을 눌러요.</li>
+      <li>새 버전이 있으면 <span class="kbd">다운로드</span>를 눌러요. 내려받기는 백그라운드에서 진행돼요.</li>
+      <li>다 받으면 <span class="kbd">지금 재시작하여 설치</span>를 누르세요. <span class="kbd">나중에</span>를 고르면 다음에 프로그램을 끌 때 자동으로 설치돼요.</li>
+    </ol>
+    <p>업데이트해도 지역, 비밀번호, 자주 가는 사이트 등 기존 설정은 그대로 남아 있어요.</p>
+  </section>
+
+  <section class="card" id="basic">
+    <h2><span class="num">3</span>기본 사용법</h2>
+
+    <h3>🐯 캐릭터와 메뉴</h3>
+    <ul>
+      <li>호랑이 캐릭터를 클릭하면 메뉴가 펼쳐지고, 다시 클릭하면 접혀요.</li>
+      <li>캐릭터를 끌어서 원하는 곳에 둘 수 있어요. 메뉴는 캐릭터가 있는 자리에서 열리고, 옮긴 위치는 다음에 프로그램을 켤 때도 그대로 기억해요. <span class="new">NEW</span></li>
+      <li>캐릭터 옆의 작은 점은 상태 표시등이에요. 메뉴 버튼 실행에 성공하면 초록색, 실패하면 빨간색으로 바뀌어요.</li>
+    </ul>
+    <figure><img src="images/menu.png" alt="캐릭터를 클릭해 펼친 메뉴" loading="lazy" style="max-width:min(100%, 360px)" /><figcaption>캐릭터를 클릭해 펼친 메뉴 - 버튼 위 숫자가 결재 대기 건수 배지예요</figcaption></figure>
+
+    <h3>⚡ 메뉴 버튼</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>버튼</th><th>하는 일</th></tr></thead>
+        <tbody>
+          <tr><td>업무포털 메인</td><td>업무포털 홈으로 바로 이동해요. 옆의 새로고침(⟳) 버튼은 결재 현황을 그 자리에서 다시 확인해요.</td></tr>
+          <tr><td>나이스 · 복무 신청 · 출장 신청 · 나이스 결재 · 출결관리 · 체험신청서 · 체험보고서</td><td>나이스 홈, 복무·출장 신청서 작성 화면, 결재 화면, 출결관리, 교외체험학습 신청서·보고서 관리 화면으로 이동해요. <strong>출결관리</strong>는 설정에서 고른 “나이스 역할”에 맞는 화면으로 가요.</td></tr>
+          <tr><td>K-에듀파인 · 기안문 작성 · 품의 작성 · 공문 결재</td><td>K-에듀파인 홈, 표준서식(기안문) 작성, 품의등록, 결재대기 화면으로 이동해요.</td></tr>
+          <tr><td>G-ONE · AI 대화·초안 · 일정 · 교데통</td><td>업무협업 G-ONE 홈, AI 대화·초안, 일정 화면으로 이동해요. <strong>교데통</strong>은 교육데이터포털의 내부승인 처리 화면으로 가요.</td></tr>
+          <tr><td>교직원홈 · e-다산 · G-인사이트 · 하이코칭</td><td>자주 쓰는 교육청 부속 시스템 홈으로 바로 가는 버튼이에요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>버튼을 처음 누르면 인증서 로그인이 자동으로 진행돼요(비밀번호를 저장해 둔 경우). 이미 로그인돼 있으면 바로 그 화면으로 이동해요.</p>
+
+    <h3>🔗 자주 가는 사이트</h3>
+    <p>설정에서 추가한 사이트는 메뉴 아래쪽에 버튼으로 나타나요. 자동 로그인 대상은 아니고, 클릭하면 기본 브라우저로 열려요.</p>
+  </section>
+
+  <section class="card" id="badges">
+    <h2><span class="num">4</span>결재 건수 알림</h2>
+
+    <h3>🔔 결재·승인 건수</h3>
+    <ul>
+      <li>설정한 주기(기본 5분)마다 아래 건수를 확인해 각 버튼에 배지로 보여 줘요.
+        <ul>
+          <li><strong>나이스 결재</strong>: 미결/협조함</li>
+          <li><strong>공문 결재</strong>: K-에듀파인 결재(긴급)</li>
+          <li><strong>교데통</strong>: 내부승인(처리)</li>
+        </ul>
+      </li>
+      <li>직전 확인 때보다 건수가 늘면 Windows 알림으로 알려 줘요.</li>
+      <li>업무포털 메인 옆의 새로고침(⟳) 버튼을 누르면 주기와 상관없이 바로 다시 확인해요.</li>
+    </ul>
+
+    <h3>🎒 체험학습 신청서·보고서 <span class="new">NEW</span></h3>
+    <ul>
+      <li>설정에서 켜 두면, 교외체험학습 <strong>신청서관리·보고서관리</strong>에서 <code>접수대기</code>·<code>미상신</code> 상태인 건수를 <strong>체험신청서</strong>·<strong>체험보고서</strong> 버튼에 배지로 보여 줘요.</li>
+      <li>나이스 화면 안까지 실제로 들어가서 확인하는 작업이라, 하루 두 번 정해진 시각(기본 08:50, 15:00)에만 자동으로 확인해요.</li>
+      <li>새로고침(⟳) 버튼을 누를 때도 켜 둔 항목은 함께 확인해요.</li>
+      <li>확인하다 실패하면(로그인이 끊겼을 때 등) 2분 → 10분 → 30분 간격으로 다시 시도해요.</li>
+    </ul>
+    <div class="note"><strong>담임이 아니라면 꺼 두세요.</strong> 교외체험학습관리 메뉴는 학급담임 역할에만 있어서, 다른 역할에서는 확인이 매번 실패해요.</div>
+  </section>
+
+  <section class="card" id="settings">
+    <h2><span class="num">5</span>설정 화면</h2>
+    <p>트레이 아이콘을 오른쪽 클릭 → <span class="kbd">설정</span>을 누르면 언제든 바꿀 수 있어요. 설정은 다섯 개 탭으로 나뉘어 있어요.</p>
+
+    <h3>계정</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>인증서 사용자 이름 (선택)</td><td>이 PC에 인증서가 여러 개 있을 때만 입력해요. 이름만 넣으면 그 이름이 들어간 인증서를 골라 로그인해요. 인증서가 하나면 비워 두세요.</td></tr>
+          <tr><td>인증서 비밀번호</td><td>저장해 두면 매번 입력하지 않아도 자동 로그인돼요. <span class="kbd">삭제</span>로 저장된 비밀번호만 지울 수 있어요.</td></tr>
+          <tr><td>자동 로그인</td><td>끄면 인증서 창이 뜰 때마다 비밀번호를 직접 입력해요.</td></tr>
+          <tr><td>나이스 역할</td><td>출결관리 등에서 쓸 나이스 상단 역할 탭이에요(학급담임 / 부서장 / 직접입력). 앞부분만 맞아도 찾아요(예: “부서장” → “부서장(교무기획부)”). 목록에 없는 역할은 “직접입력”에 정확한 탭 이름을 넣어 주세요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>브라우저</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>브라우저</td><td>이 PC에 설치된 Chrome 또는 Edge 중에서 골라요.</td></tr>
+          <tr><td>브라우저 프로필</td><td><strong>PortalPet 전용 프로필(추천)</strong> 또는 평소 쓰던 프로필 중에서 골라요. 평소 프로필을 고르면 그 프로필로 브라우저가 켜져 있을 때 충돌하니, 먼저 브라우저를 완전히 닫아 주세요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>화면</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>화면 테마</td><td>라이트 / 다크. 설정 창·정보 창·캐릭터 메뉴에 모두 적용돼요.</td></tr>
+          <tr><td>메뉴에 표시할 항목</td><td>메뉴 버튼을 하나씩 켜고 끌 수 있어요. 권한이 없어 안 쓰는 항목은 꺼 두면 메뉴에서 숨겨져요.</td></tr>
+          <tr><td>메뉴 자동 닫힘</td><td>켜 두면 펼친 메뉴가 지정한 시간(초) 뒤에 자동으로 접혀요.</td></tr>
+          <tr><td>메뉴 투명도</td><td>펼친 메뉴 배경의 투명도(20~100%)예요.</td></tr>
+          <tr><td>캐릭터 이미지</td><td>배경이 투명한 이미지를 올리면 호랑이 대신 사용해요(평상시 / 드래그할 때 / 오래 안 쓸 때). 올리지 않은 상태는 기본 이미지를 써요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>자동확인</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>나이스 결재 / 공문 결재 건수 자동 확인</td><td>켜 두면 확인 주기(분)마다 결재·승인 대기 건수를 확인해 배지와 알림으로 보여 줘요.</td></tr>
+          <tr><td>체험신청서/체험보고서 확인 시각</td><td>체험학습 신청서·보고서를 자동으로 확인할 하루 두 번의 시각이에요(기본 08:50, 15:00).</td></tr>
+          <tr><td>교외체험학습 신청서 / 보고서 건수 자동 확인</td><td>켜 둔 항목만 위 시각과 새로고침(⟳) 때 확인해요(기본 꺼짐).</td></tr>
+          <tr><td>공지 팝업 자동 닫기</td><td>나이스·K-에듀파인의 공지·안내 팝업을 자동으로 닫아 줘요(기본 켜짐). 첨부파일 다운로드가 안 되면 꺼서 확인해 보세요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>시작</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>Windows 시작 시 자동 실행</td><td>컴퓨터를 켤 때 PortalPet도 같이 켜져요.</td></tr>
+          <tr><td>프로그램 실행 시 메신저 / 일정 자동 실행</td><td>프로그램을 켤 때 G-ONE 메신저 로그인과 일정 화면을 자동으로 띄워요. 하나만 골라도 되고 둘 다 골라도 돼요.</td></tr>
+          <tr><td>메신저 실행 시 최소화하기</td><td>메신저 창이 화면 앞으로 튀어나오지 않게 바로 최소화해요.</td></tr>
+          <tr><td>자주 가는 사이트</td><td>메뉴명과 주소를 넣고 <span class="kbd">추가</span>하면 메뉴 아래쪽에 버튼이 생겨요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="shots">
+      <figure><img src="images/settings-account.png" alt="설정 - 계정 탭" loading="lazy" /><figcaption>계정</figcaption></figure>
+      <figure><img src="images/settings-browser.png" alt="설정 - 브라우저 탭" loading="lazy" /><figcaption>브라우저</figcaption></figure>
+      <figure><img src="images/settings-appearance.png" alt="설정 - 화면 탭" loading="lazy" /><figcaption>화면</figcaption></figure>
+      <figure><img src="images/settings-autocheck.png" alt="설정 - 자동확인 탭" loading="lazy" /><figcaption>자동확인</figcaption></figure>
+      <figure><img src="images/settings-startup.png" alt="설정 - 시작 탭" loading="lazy" /><figcaption>시작</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="card" id="tray">
+    <h2><span class="num">6</span>트레이 메뉴</h2>
+    <p>작업표시줄 오른쪽 아래의 PortalPet 아이콘을 오른쪽 클릭하면 나오는 메뉴예요.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>메뉴</th><th>하는 일</th></tr></thead>
+        <tbody>
+          <tr><td>설정</td><td>설정 창을 열어요.</td></tr>
+          <tr><td>펼치기/접기</td><td>캐릭터를 클릭한 것처럼 메뉴를 열고 닫아요.</td></tr>
+          <tr><td>Windows 시작 시 자동 실행</td><td>컴퓨터를 켤 때 PortalPet도 같이 켜지게 해요.</td></tr>
+          <tr><td>로그 폴더 열기</td><td>문제가 생겼을 때 보낼 로그 파일이 있는 폴더를 열어요.</td></tr>
+          <tr><td>프로그램 정보</td><td>현재 버전, 새 버전 확인, 문의 메일을 볼 수 있어요.</td></tr>
+          <tr><td>종료</td><td>PortalPet을 완전히 종료해요.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="faq">
+    <h2><span class="num">7</span>자주 묻는 질문</h2>
+    <details>
+      <summary>Windows가 “PC 보호” 경고를 띄워요</summary>
+      <p>코드 서명 인증서 없이 배포해서 나오는 정상적인 경고예요. <span class="kbd">추가 정보</span> → <span class="kbd">실행</span>을 눌러 진행하세요.</p>
+    </details>
+    <details>
+      <summary>선택한 브라우저 프로필로 실행이 안 돼요</summary>
+      <p>그 프로필로 브라우저(크롬 또는 엣지)가 이미 켜져 있으면 생기는 문제예요. 브라우저를 완전히 닫은 뒤 다시 시도해 주세요. 편하게 쓰려면 <strong>PortalPet 전용 프로필</strong>을 추천해요.</p>
+    </details>
+    <details>
+      <summary>인증서 로그인이 느리거나 안 돼요</summary>
+      <p>설정에서 “자동 로그인”이 켜져 있고 비밀번호가 맞는지 확인해 주세요. 처음 쓰는 브라우저로 처음 로그인할 때는 보안 프로그램 설치 안내가 뜰 수 있어요. 안내대로 설치하면 그다음부터는 정상적으로 진행돼요.</p>
+    </details>
+    <details>
+      <summary>공지사항 팝업이 화면에 남아 있어요</summary>
+      <p>프로그램이 몇 초 동안 다시 시도하며 닫으니 잠시 기다려 주세요. 계속 남아 있다면 직접 닫은 뒤 메뉴 버튼을 한 번 더 눌러 주세요. <strong>공문 결재</strong>는 팝업을 직접 닫으면 기다렸다가 결재대기 화면으로 이어서 이동해요.</p>
+    </details>
+    <details>
+      <summary>첨부파일 다운로드가 안 돼요</summary>
+      <p>“공지 팝업 자동 닫기”가 켜져 있으면 일부 화면(게시판 첨부파일 다운로드 창 등)을 공지 팝업으로 잘못 알고 닫을 수 있어요. 설정에서 이 옵션을 끈 뒤 다시 해 보세요.</p>
+    </details>
+    <details>
+      <summary>G-ONE 메신저가 안 열려요</summary>
+      <p>메신저 기능은 PC에 Brity 메신저 앱이 설치돼 있어야 동작해요.</p>
+    </details>
+    <details>
+      <summary>체험신청서·체험보고서 배지 숫자가 안 바뀌어요</summary>
+      <p>설정 → 자동확인에서 해당 항목이 켜져 있는지, 설정의 “나이스 역할”이 학급담임인지 확인해 주세요. 정해진 시각(기본 08:50, 15:00)에만 자동으로 확인하니, 바로 보고 싶으면 새로고침(⟳) 버튼을 눌러 주세요.</p>
+    </details>
+  </section>
+
+  <section class="card" id="contact">
+    <h2><span class="num">8</span>문의</h2>
+    <p>오류가 있거나 바라는 기능이 있으면 메일로 알려 주세요. 오류라면 트레이 메뉴 → <span class="kbd">로그 폴더 열기</span>에서 <code>portalpet.log</code> 파일을 함께 보내 주시면 원인을 훨씬 빨리 찾을 수 있어요.</p>
+    <p>📮 <a href="mailto:khami@ssem.re.kr">khami@ssem.re.kr</a></p>
+  </section>
+
+  <footer>
+    PortalPet · <a href="https://github.com/khamissemrekr/portal-pet">GitHub</a> · <a href="https://github.com/khamissemrekr/portal-pet/releases">모든 버전</a><br />
+    <a class="top-link" href="#top">↑ 맨 위로</a>
+  </footer>
+</div>
+</body>
+</html>
