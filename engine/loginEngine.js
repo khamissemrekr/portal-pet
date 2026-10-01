@@ -3418,9 +3418,14 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
       // fallback으로 쓸 수 없다 - 포털 홈 DOM에서 매번 새로 읽어야 하므로 fallbackUrl 없음.
       targetPage = await goToPortalMenu(page, 'G-인사이트', { fallbackUrl: null, password, subdomain });
       break;
-    case 'hicoaching':
-      targetPage = await goToPortalMenu(page, '하이코칭', { fallbackUrl: HICOACHING_URL_BY_SUBDOMAIN[subdomain] || null, password, subdomain });
+    case 'hicoaching': {
+      // (수정, 사용자 요청: "하이코칭"을 "교원성장플랫폼"으로 이름 변경) 포털 홈 메뉴 이름이 아직
+      // "하이코칭"일 수도, 새 이름으로 바뀌었을 수도 있어 새 이름을 먼저 찾고 없으면 예전 이름을 쓴다.
+      await waitForPortalMenu(page);
+      const hicoachingLabel = (await readPortalMenuUrl(page, '교원성장플랫폼')) ? '교원성장플랫폼' : '하이코칭';
+      targetPage = await goToPortalMenu(page, hicoachingLabel, { fallbackUrl: HICOACHING_URL_BY_SUBDOMAIN[subdomain] || null, password, subdomain });
       break;
+    }
     case 'giahn':
       targetPage = await openGiahn(page, subdomain, password, alreadyInTargetSystem);
       break;

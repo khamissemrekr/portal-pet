@@ -274,7 +274,7 @@ const PORTAL_LINKS = [
   { key: 'staff_home', label: '교직원홈' },
   { key: 'edasan', label: 'e-다산' },
   { key: 'ginsight', label: 'G-인사이트' },
-  { key: 'hicoaching', label: '하이코칭' },
+  { key: 'hicoaching', label: '교원성장플랫폼' },
 ];
 const portalLinksWrap = document.getElementById('portal-links-wrap');
 PORTAL_LINKS.forEach(({ key, label }) => {
