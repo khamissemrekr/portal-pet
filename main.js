@@ -7,11 +7,12 @@ const { app, BrowserWindow, Tray, Menu, screen, ipcMain, shell, Notification, di
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
+const { spawn } = require('node:child_process');
 const { autoUpdater } = require('electron-updater');
 const credentialStore = require('./engine/credentialStore');
 const loginEngine = require('./engine/loginEngine');
 const { REGIONS } = require('./engine/regionMap');
-const { listBrowserProfiles } = require('./engine/browserProfiles');
+const { listBrowserProfiles, findBrowserExecutable } = require('./engine/browserProfiles');
 const { startDialogSuppressor, stopDialogSuppressor } = require('./engine/dialogSuppressor');
 const { startFileLogger, getLogFilePath } = require('./engine/fileLogger');
 
@@ -383,8 +384,6 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
   }
 });
 
-// channel: 'chrome' | 'msedge' - 설정 창에서 브라우저를 바꾸면 그 브라우저의 프로필 목록을 다시 읽어온다.
-ipcMain.handle('list-browser-profiles', (_evt, channel) => listBrowserProfiles(channel || 'chrome'));
 // autoStartOnLogin은 config.json이 아니라 OS 자체 설정(app.getLoginItemSettings)이라 여기서
 // 합쳐서 내려준다 - 설정 창이 매번 최신 상태를 그대로 보여줄 수 있도록.
 ipcMain.handle('get-config', () => ({
@@ -415,6 +414,13 @@ ipcMain.handle('toggle-panel', () => togglePanel());
 // 메뉴 하단의 톱니 아이콘에서 설정 창을 바로 열 수 있도록(트레이 메뉴를 거치지 않고).
 ipcMain.handle('open-setup-window', () => openSetupWindow());
 ipcMain.handle('open-external', (_evt, url) => shell.openExternal(url));
+ipcMain.handle('open-custom-link', (_evt, link) => openCustomLink(link));
+// 설정 창의 자주 가는 사이트 "열 브라우저" 선택지 - 설치된 크롬/엣지의 프로필 목록.
+ipcMain.handle('list-link-browser-profiles', () =>
+  ['chrome', 'msedge']
+    .filter((channel) => findBrowserExecutable(channel))
+    .flatMap((channel) => listBrowserProfiles(channel).map((p) => ({ channel, folder: p.folder, name: p.name })))
+);
 
 // ===== 프로그램 정보 창용 =====
 ipcMain.handle('get-app-version', () => app.getVersion());
@@ -611,9 +617,53 @@ function resolveNeisRoleLabel(config) {
 function sanitizeCustomLinks(customLinks) {
   if (!Array.isArray(customLinks)) return [];
   return customLinks
-    .map((l) => ({ label: String(l?.label || '').trim(), url: String(l?.url || '').trim() }))
+    .map((l) => ({ label: String(l?.label || '').trim(), url: String(l?.url || '').trim(), opener: sanitizeLinkOpener(l?.opener) }))
     .filter((l) => l.label && l.url)
-    .map((l) => ({ label: l.label, url: /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}` }));
+    .map((l) => ({
+      label: l.label,
+      url: /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}`,
+      ...(l.opener ? { opener: l.opener } : {}), // 없으면 기본 브라우저로 연다(예전 저장값과 동일)
+    }));
+}
+
+// (신규, 사용자 요청: 자주 가는 사이트를 원하는 브라우저 프로필로 열기) opener는
+// { channel: 'chrome' | 'msedge', folder: 'Default' | 'Profile 1' ... } - 그 외 값은 버린다.
+function sanitizeLinkOpener(opener) {
+  if (!opener || typeof opener !== 'object') return null;
+  const channel = opener.channel === 'msedge' ? 'msedge' : opener.channel === 'chrome' ? 'chrome' : null;
+  const folder = typeof opener.folder === 'string' ? opener.folder.trim() : '';
+  if (!channel || !folder || /[\\/"]/.test(folder)) return null;
+  return { channel, folder };
+}
+
+// 자주 가는 사이트 버튼 클릭 - 지정한 프로필이 있으면 그 브라우저 실행 파일에 --profile-directory를
+// 넘겨 연다(그 프로필 창이 이미 열려 있으면 새 탭, 아니면 새 창). 자동화가 아니라 단순 실행이라
+// 크롬 136+의 원격 디버깅 제한과 무관하다. 실행 파일이나 프로필을 못 찾으면 기본 브라우저로 연다.
+function openCustomLink(link) {
+  const url = String(link?.url || '');
+  if (!/^https?:\/\//i.test(url)) return false;
+  const opener = sanitizeLinkOpener(link?.opener);
+  if (opener) {
+    const exe = findBrowserExecutable(opener.channel);
+    const profileExists = listBrowserProfiles(opener.channel).some((p) => p.folder === opener.folder);
+    if (exe && profileExists) {
+      try {
+        const child = spawn(exe, [`--profile-directory=${opener.folder}`, url], { detached: true, stdio: 'ignore' });
+        child.on('error', (e) => {
+          console.error('[PortalPet] 자주 가는 사이트 - 브라우저 실행 실패, 기본 브라우저로 엶:', e.message);
+          shell.openExternal(url);
+        });
+        child.unref();
+        return true;
+      } catch (e) {
+        console.error('[PortalPet] 자주 가는 사이트 - 브라우저 실행 실패, 기본 브라우저로 엶:', e.message);
+      }
+    } else {
+      console.log(`[PortalPet] 자주 가는 사이트 - ${opener.channel} 실행 파일 또는 프로필 "${opener.folder}"을 못 찾아 기본 브라우저로 엶`);
+    }
+  }
+  shell.openExternal(url);
+  return true;
 }
 
 // choose-character-image가 돌려준 경로(우리 앱 데이터 폴더 안)만 신뢰한다 - 그 외 값(오래된
@@ -713,7 +763,9 @@ ipcMain.handle('save-setup', (_evt, {
     region,
     subdomain: subdomain || REGIONS[region] || '',
     encryptedPasswordBase64,
-    browserProfile: browserProfile || null, // null이면 PortalPet 전용 프로필 사용
+    // (수정) 크롬 136+는 기본 User Data 폴더에서 자동화를 막아 평소 쓰던 프로필로는 동작하지 않는다 -
+    // 항상 PortalPet 전용 프로필(null)로 저장한다(migrateBrowserProfileToDedicated 참고).
+    browserProfile: null,
     browserChannel: browserChannel === 'msedge' ? 'msedge' : 'chrome', // 어떤 설치된 브라우저(크롬/엣지)를 쓸지
     autoLaunchMessenger: !!autoLaunchMessenger,
     autoLaunchSchedule: !!autoLaunchSchedule,
@@ -1250,7 +1302,28 @@ ipcMain.handle('refresh-portal-dashboard', async () => {
   }
 });
 
+// (버그 수정, 사용자 재현 2026-10-01: 평소 쓰던 크롬 프로필을 고르면 about:blank 탭만 계속 쌓임)
+// 크롬은 같은 User Data 폴더를 프로세스 하나만 쓸 수 있어, 평소 크롬이 켜져 있으면 PortalPet이 띄운
+// 크롬이 "기존 브라우저 세션에서 여는 중"으로 빈 탭만 넘기고 바로 종료된다 - 그 뒤 재시도할 때마다
+// 빈 탭이 하나씩 늘었다. 크롬을 꺼도 크롬 136+는 기본 User Data 폴더의 원격 디버깅(Playwright가
+// 브라우저를 조종하는 통로)을 보안상 막아 동작하지 않는다. 그래서 평소 쓰던 프로필 선택 기능을
+// 없앴고, 예전에 그걸 골라 둔 설정은 시작할 때 전용 프로필로 바꾸고 한 번 알린다.
+function migrateBrowserProfileToDedicated() {
+  const config = credentialStore.loadConfig();
+  if (!config.browserProfile) return;
+  console.log('[PortalPet] 평소 쓰던 브라우저 프로필 설정을 PortalPet 전용 프로필로 전환:', config.browserProfile.folder);
+  config.browserProfile = null;
+  credentialStore.saveConfig(config);
+  if (Notification.isSupported()) {
+    new Notification({
+      title: 'PortalPet 전용 프로필로 전환했습니다',
+      body: '크롬·엣지 보안 정책상 평소 쓰던 프로필로는 자동 로그인을 할 수 없어 전용 프로필을 사용합니다. 처음 한 번은 인증서 로그인과 보안프로그램 안내가 다시 뜰 수 있습니다.',
+    }).show();
+  }
+}
+
 app.whenReady().then(async () => {
+  migrateBrowserProfileToDedicated();
   createWindow();
   createTray();
   startDialogSuppressor(); // K-에듀파인 WXSClient의 "웹 페이지 메시지" 확인창 자동 취소

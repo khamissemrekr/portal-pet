@@ -378,12 +378,13 @@ function renderCustomLinks(customLinks) {
   customLinksEl.innerHTML = '';
   const links = Array.isArray(customLinks) ? customLinks : [];
   customLinksWrap.classList.toggle('hidden', links.length === 0);
-  for (const { label, url } of links) {
+  for (const link of links) {
     const btn = document.createElement('button');
     btn.className = 'custom-link-btn';
-    btn.textContent = label;
-    btn.title = url;
-    btn.addEventListener('click', () => window.portalPet.openExternal(url));
+    btn.textContent = link.label;
+    btn.title = link.url;
+    // 지정한 브라우저 프로필이 있으면 그 프로필로, 없으면 기본 브라우저로 연다(main.js openCustomLink).
+    btn.addEventListener('click', () => window.portalPet.openCustomLink({ url: link.url, opener: link.opener || null }));
     customLinksEl.appendChild(btn);
   }
 }

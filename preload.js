@@ -11,7 +11,6 @@ contextBridge.exposeInMainWorld('portalPet', {
   saveSetup: (data) => ipcRenderer.invoke('save-setup', data),
   deletePassword: () => ipcRenderer.invoke('delete-password'),
   // channel: 'chrome' | 'msedge' - 설정 창에서 브라우저를 바꿀 때마다 그 브라우저의 프로필 목록을 다시 불러온다.
-  listBrowserProfiles: (channel) => ipcRenderer.invoke('list-browser-profiles', channel),
   getConfig: () => ipcRenderer.invoke('get-config'),
   // 설정 창 "화면" 탭 - 캐릭터 이미지(평상시/드래그할 때/오래 안 쓸 때) 파일 선택 창을 연다.
   chooseCharacterImage: (poseKey) => ipcRenderer.invoke('choose-character-image', poseKey),
@@ -31,6 +30,8 @@ contextBridge.exposeInMainWorld('portalPet', {
   resizePanel: (height) => ipcRenderer.send('resize-panel', height),
   // 자주 가는 사이트(사용자 지정 링크)는 SSO 자동화 대상이 아니라 그냥 기본 브라우저로 연다.
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openCustomLink: (link) => ipcRenderer.invoke('open-custom-link', link),
+  listLinkBrowserProfiles: () => ipcRenderer.invoke('list-link-browser-profiles'),
   // 프로그램 정보 창(버전 표시 / 새 버전 확인 버튼)에서 사용.
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),

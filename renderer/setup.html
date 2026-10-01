@@ -89,7 +89,9 @@
   }
   button:hover { filter: brightness(1.06); }
   .note { font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
-  .link-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }
+  .link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
+  /* 각 사이트를 열 브라우저/프로필 - 이름·주소·삭제 줄 아래 한 줄을 통째로 쓴다. */
+  .link-row select.link-opener { flex: 1 1 100%; margin-top: 0; padding: 4px 8px; font-size: 12px; }
   .link-row .link-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .link-row .link-url { flex: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
   .link-row button { width: auto; margin-top: 0; padding: 2px 8px; flex-shrink: 0; background: var(--danger-bg); color: var(--danger); box-shadow: none; }
@@ -255,14 +257,17 @@
         이후 PortalPet에서도 정상 동작합니다. 계속 안 되면 크롬 사용을 권장합니다.
       </div>
 
+      <!-- (수정, 사용자 재현: 사용 중인 크롬 프로필을 고르면 about:blank 탭만 쌓이고 동작 안 함)
+           크롬 136+는 기본 "User Data" 폴더에서 자동화(원격 디버깅)를 막아서, 평소 쓰던 프로필로는
+           PortalPet이 브라우저를 조종할 수 없다 - 선택지를 없애고 전용 프로필로 고정한다. -->
       <label>브라우저 프로필
-        <select id="browserProfile">
-          <option value="__dedicated__">PortalPet 전용 프로필 (추천)</option>
+        <select id="browserProfile" disabled>
+          <option value="__dedicated__">PortalPet 전용 프로필</option>
         </select>
       </label>
       <div class="note">
-        기존에 쓰던 프로필을 선택하면 로그인·보안프로그램 설정이 이미 돼 있어 첫 화면부터 매끄럽습니다.
-        단, <b>그 프로필로 해당 브라우저가 이미 켜져 있으면</b> 먼저 완전히 종료해야 동작합니다.
+        크롬·엣지 보안 정책상 평소 쓰던 프로필로는 자동 로그인과 메뉴 이동을 할 수 없어, PortalPet 전용
+        프로필만 사용합니다. 전용 프로필도 로그인 상태와 보안프로그램 설정이 계속 유지됩니다.
       </div>
     </div>
 
@@ -384,7 +389,13 @@
         <input id="newLinkUrl" placeholder="주소 (예: school.go.kr)" style="flex:1.4; margin-top:0;" />
         <button id="addLinkBtn" type="button" style="width:auto; margin-top:0; padding:0 12px; flex-shrink:0;">추가</button>
       </div>
-      <div class="note">메뉴에 버튼으로 추가되며, 클릭하면 기본 브라우저로 열립니다.</div>
+      <label style="margin-top:6px;">열 브라우저
+        <select id="newLinkOpener"></select>
+      </label>
+      <div class="note">
+        메뉴에 버튼으로 추가되며, 클릭하면 고른 브라우저 프로필로 열립니다(기본: 기본 브라우저). 평소 쓰던
+        크롬·엣지 프로필도 고를 수 있어 그 프로필의 로그인 상태 그대로 열립니다. 이미 추가한 사이트도 목록에서 바꿀 수 있습니다.
+      </div>
     </div>
   </div>
 
@@ -583,19 +594,9 @@
     // 브라우저(크롬/엣지)를 바꾸면 그 브라우저에 설치된 프로필 목록으로 다시 불러온다.
     // selectedValue를 넘기면(초기 로드 시 저장된 값 복원용) 목록에 있을 때 그 값으로 맞춰준다 -
     // 없으면(다른 브라우저로 바꿔서 예전 프로필이 더는 없는 경우 등) 기본값인 전용 프로필로 둔다.
-    async function reloadProfileList(channel, selectedValue) {
-      const profiles = await window.portalPet.listBrowserProfiles(channel);
-      profileSelect.innerHTML = '<option value="__dedicated__">PortalPet 전용 프로필 (추천)</option>';
-      for (const p of profiles) {
-        const opt = document.createElement('option');
-        opt.value = JSON.stringify({ root: p.root, folder: p.folder });
-        opt.textContent = `${p.name} (${p.folder})`;
-        profileSelect.appendChild(opt);
-      }
-      if (selectedValue) {
-        const match = [...profileSelect.options].find((o) => o.value === selectedValue);
-        if (match) profileSelect.value = selectedValue;
-      }
+    // 프로필은 전용 프로필로 고정 - 목록을 다시 읽지 않는다(위 HTML 주석 참고).
+    function reloadProfileList() {
+      profileSelect.value = '__dedicated__';
     }
 
     function syncEdgeNote() {
@@ -603,13 +604,40 @@
     }
 
     browserChannelSelect.addEventListener('change', () => {
-      reloadProfileList(browserChannelSelect.value);
       syncEdgeNote();
     });
 
     let hasExistingPassword = false;
     let customLinks = [];
     const customLinksList = document.getElementById('customLinksList');
+    const newLinkOpenerSelect = document.getElementById('newLinkOpener');
+    let linkBrowserProfiles = []; // [{ channel, folder, name }] - 설치된 크롬/엣지 프로필
+
+    const BROWSER_LABEL = { chrome: '크롬', msedge: '엣지' };
+    const openerKey = (opener) => (opener ? `${opener.channel}::${opener.folder}` : '');
+    const openerFromKey = (key) => {
+      if (!key) return null;
+      const [channel, ...rest] = key.split('::');
+      return { channel, folder: rest.join('::') };
+    };
+    // 선택지: 기본 브라우저 + 설치된 크롬/엣지의 각 프로필. 저장된 값이 지금은 없는 프로필이면
+    // (삭제됨 등) 그 값도 "(찾을 수 없음)"으로 보여 줘서 저장 시 조용히 바뀌지 않게 한다.
+    function fillOpenerOptions(select, selectedOpener) {
+      select.innerHTML = '';
+      const add = (value, text) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = text;
+        select.appendChild(opt);
+      };
+      add('', '기본 브라우저');
+      for (const p of linkBrowserProfiles) add(openerKey(p), `${BROWSER_LABEL[p.channel]} - ${p.name}`);
+      const wanted = openerKey(selectedOpener);
+      if (wanted && ![...select.options].some((o) => o.value === wanted)) {
+        add(wanted, `${BROWSER_LABEL[selectedOpener.channel] || selectedOpener.channel} - ${selectedOpener.folder} (찾을 수 없음 - 기본 브라우저로 열림)`);
+      }
+      select.value = wanted;
+    }
 
     function renderCustomLinksList() {
       customLinksList.innerHTML = '';
@@ -629,9 +657,17 @@
           customLinks.splice(idx, 1);
           renderCustomLinksList();
         });
+        const openerSelect = document.createElement('select');
+        openerSelect.className = 'link-opener';
+        fillOpenerOptions(openerSelect, link.opener);
+        openerSelect.addEventListener('change', () => {
+          const opener = openerFromKey(openerSelect.value);
+          if (opener) link.opener = opener; else delete link.opener;
+        });
         row.appendChild(label);
         row.appendChild(url);
         row.appendChild(removeBtn);
+        row.appendChild(openerSelect);
         customLinksList.appendChild(row);
       });
     }
@@ -645,9 +681,11 @@
         alert('메뉴명과 주소를 모두 입력하세요.');
         return;
       }
-      customLinks.push({ label, url });
+      const opener = openerFromKey(newLinkOpenerSelect.value);
+      customLinks.push(opener ? { label, url, opener } : { label, url });
       labelInput.value = '';
       urlInput.value = '';
+      newLinkOpenerSelect.value = '';
       labelInput.focus();
       renderCustomLinksList();
     });
@@ -661,10 +699,7 @@
 
       browserChannelSelect.value = config?.browserChannel === 'msedge' ? 'msedge' : 'chrome';
       syncEdgeNote();
-      const wantedProfile = config?.browserProfile
-        ? JSON.stringify({ root: config.browserProfile.root, folder: config.browserProfile.folder })
-        : null;
-      await reloadProfileList(browserChannelSelect.value, wantedProfile);
+      reloadProfileList();
 
       const opacityPercent = Math.round((typeof config?.panelOpacity === 'number' ? config.panelOpacity : 0.92) * 100);
       opacityInput.value = String(opacityPercent);
@@ -693,6 +728,8 @@
       panelAutoCloseEnabledInput.checked = !!config?.panelAutoCloseEnabled;
       panelAutoCloseSecondsInput.value = String(config?.panelAutoCloseSeconds ?? 10);
       syncPanelAutoCloseSecondsEnabled();
+      linkBrowserProfiles = await window.portalPet.listLinkBrowserProfiles().catch(() => []);
+      fillOpenerOptions(newLinkOpenerSelect, null);
       customLinks = Array.isArray(config?.customLinks) ? config.customLinks.map((l) => ({ ...l })) : [];
       renderCustomLinksList();
 
@@ -734,7 +771,7 @@
         alert(autoLogin ? '지역과 비밀번호를 입력하세요 (자동 로그인을 끄면 비밀번호 없이도 저장할 수 있습니다).' : '지역을 입력하세요.');
         return;
       }
-      const browserProfile = profileSelect.value === '__dedicated__' ? null : JSON.parse(profileSelect.value);
+      const browserProfile = null; // 전용 프로필 고정
       const browserChannel = browserChannelSelect.value === 'msedge' ? 'msedge' : 'chrome';
       const autoStartOnLogin = document.getElementById('autoStartOnLogin').checked;
       const autoLaunchMessenger = document.getElementById('autoLaunchMessenger').checked;

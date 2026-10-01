@@ -41,4 +41,29 @@ function listBrowserProfiles(channel = 'chrome') {
   }
 }
 
-module.exports = { listBrowserProfiles, browserUserDataRoot };
+// (신규, 사용자 요청: 자주 가는 사이트를 원하는 브라우저 프로필로 열기) 자동화(Playwright) 없이
+// 실행 파일에 --profile-directory만 넘겨 주소를 여는 용도라, 크롬 136+의 원격 디버깅 제한과 무관하게
+// 평소 쓰던 프로필로도 열 수 있다. 시스템 설치/사용자별 설치 위치를 차례로 확인한다.
+const BROWSER_EXE_CANDIDATES = {
+  chrome: [
+    [process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'],
+    [process.env['ProgramFiles(x86)'], 'Google', 'Chrome', 'Application', 'chrome.exe'],
+    [process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe'],
+  ],
+  msedge: [
+    [process.env['ProgramFiles(x86)'], 'Microsoft', 'Edge', 'Application', 'msedge.exe'],
+    [process.env.ProgramFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'],
+    [process.env.LOCALAPPDATA, 'Microsoft', 'Edge', 'Application', 'msedge.exe'],
+  ],
+};
+
+function findBrowserExecutable(channel) {
+  for (const parts of BROWSER_EXE_CANDIDATES[channel] || []) {
+    if (!parts[0]) continue;
+    const exe = path.join(...parts);
+    if (fs.existsSync(exe)) return exe;
+  }
+  return null;
+}
+
+module.exports = { listBrowserProfiles, browserUserDataRoot, findBrowserExecutable };
