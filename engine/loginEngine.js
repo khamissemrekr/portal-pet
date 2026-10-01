@@ -1662,6 +1662,49 @@ async function selectEdufineJob(page, jobName) {
 }
 
 /**
+ * (버그 수정, 사용자 재현 2026-10-01: "공문 결재" 클릭 후 뜬 팝업을 직접 닫았는데 결재대기 화면으로
+ * 안 넘어가고 멈춤) K-에듀파인 공지 등 Nexacro 모달 팝업이 떠 있으면 #nexacontainer.nexamodaloverlay가
+ * 화면 전체를 덮어 메뉴 클릭을 가로챈다. closeAnyPopupsForAWhile이 몇 초 지켜본 뒤에 늦게 뜨는 팝업은
+ * 못 잡고, 그 상태에서 메가메뉴 클릭이 Playwright 기본 30초 동안 재시도하다가, 사용자가 팝업을
+ * 닫는 사이 메가메뉴 팝업 자체가 사라져 결국 타임아웃으로 실패했다(실측 로그 13:28:40~13:29:10).
+ * 모달이 보이면 사용자가 닫을 때까지 기다렸다가 진행하고, 클릭은 짧은 타임아웃으로 실패를 빨리
+ * 알린 뒤 호출 쪽에서 메뉴 이동을 처음부터 다시 하게 한다.
+ */
+async function isEdufineModalOverlayVisible(page) {
+  return page.evaluate(() => [...document.querySelectorAll('.nexamodaloverlay')].some((e) => {
+    const r = e.getBoundingClientRect();
+    const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.display !== 'none' && st.visibility !== 'hidden';
+  })).catch(() => false);
+}
+
+async function waitForEdufineModalOverlayGone(page, { timeoutMs = 120000 } = {}) {
+  if (!(await isEdufineModalOverlayVisible(page))) return true;
+  console.log('[PortalPet] K-에듀파인 팝업(모달)이 떠 있음 - 닫힐 때까지 기다린 뒤 이어서 진행');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(500);
+    if (!(await isEdufineModalOverlayVisible(page))) {
+      console.log('[PortalPet] K-에듀파인 팝업(모달)이 닫힘 - 메뉴 이동 계속');
+      await page.waitForTimeout(500);
+      return true;
+    }
+  }
+  console.log('[PortalPet] K-에듀파인 팝업(모달)이 시간 안에 닫히지 않음 - 그대로 진행');
+  return false;
+}
+
+async function clickEdufineElement(el, label) {
+  try {
+    await el.click({ timeout: 5000 });
+    return true;
+  } catch (e) {
+    console.log(`[PortalPet] K-에듀파인 "${label}" 클릭 실패:`, (e.message || '').split('\n')[0]);
+    return false;
+  }
+}
+
+/**
  * K-에듀파인 상단 메뉴(문서관리/사업관리 등)는 Nexacro가 만드는 실제 DOM 요소로,
  * id에 "TopFrame"과 "btnMenu_"가 포함된다. 텍스트로 아무 요소나 찾는 것보다 정확하다.
  */
@@ -1677,7 +1720,7 @@ async function clickEdufineTopMenu(page, menuName) {
     console.log(`[PortalPet] K-에듀파인 상단 메뉴 "${menuName}"을 찾지 못함`);
     return false;
   }
-  await el.click();
+  if (!(await clickEdufineElement(el, menuName))) return false;
   console.log(`[PortalPet] clicked K-에듀파인 top menu "${menuName}"`);
   await page.waitForTimeout(800);
   return true;
@@ -1696,7 +1739,7 @@ async function clickEdufineMegaMenuPopup(page, menuName) {
     console.log(`[PortalPet] K-에듀파인 메가메뉴 "${menuName}"을 찾지 못함`);
     return false;
   }
-  await el.click();
+  if (!(await clickEdufineElement(el, menuName))) return false;
   console.log(`[PortalPet] clicked K-에듀파인 mega menu "${menuName}"`);
   return true;
 }
@@ -1777,7 +1820,7 @@ async function ensureEdufineMegaMenuExpanded(page, leafLabel, categoryLabel) {
     console.log(`[PortalPet] K-에듀파인 "${categoryLabel}" 카테고리를 못 찾음`);
     return isLeafVisible();
   }
-  await el.click();
+  if (!(await clickEdufineElement(el, categoryLabel))) return isLeafVisible();
   console.log(`[PortalPet] clicked K-에듀파인 category "${categoryLabel}" to reveal "${leafLabel}"`);
   await page.waitForTimeout(600);
   return isLeafVisible();
@@ -2163,14 +2206,24 @@ async function openEdufineApproval(page, subdomain, password, alreadyOnEdufine =
   // 포함) 몇 초간 지켜보며 닫는다.
   await closeAnyPopupsForAWhile(target);
   await waitForEdufineReady(target);
+  await waitForEdufineModalOverlayGone(target);
   await selectEdufineJob(target, '업무관리');
-  const topOk = await clickEdufineTopMenu(target, '문서관리');
-  if (!topOk) await clickText(target, '문서관리');
-  await ensureEdufineMegaMenuExpanded(target, '결재대기', '결재');
-  const megaOk = await clickEdufineMegaMenu(target, '결재대기');
-  if (!megaOk) {
-    console.log('[PortalPet] K-에듀파인 "결재대기" 메뉴 탐색 실패 - 일반 텍스트 클릭으로 재시도');
-    await clickText(target, '결재대기');
+
+  // 팝업이 메뉴 이동 도중에 늦게 떠서 클릭이 막히면, 사용자가 닫을 때까지 기다렸다가 상단 메뉴부터
+  // 다시 진행한다(그 사이 메가메뉴 팝업은 이미 닫혔을 수 있어 중간 단계부터 재개하면 안 됨).
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await waitForEdufineModalOverlayGone(target);
+    const topOk = await clickEdufineTopMenu(target, '문서관리');
+    if (!topOk) await clickText(target, '문서관리', { timeout: 5000 });
+    await waitForEdufineModalOverlayGone(target);
+    await ensureEdufineMegaMenuExpanded(target, '결재대기', '결재');
+    let megaOk = await clickEdufineMegaMenu(target, '결재대기');
+    if (!megaOk) {
+      console.log('[PortalPet] K-에듀파인 "결재대기" 메뉴 탐색 실패 - 일반 텍스트 클릭으로 재시도');
+      megaOk = await clickText(target, '결재대기', { timeout: 5000 });
+    }
+    if (megaOk && !(await isEdufineModalOverlayVisible(target))) break;
+    if (attempt < 2) console.log('[PortalPet] K-에듀파인 "결재대기" 이동이 팝업에 막힘 - 팝업이 닫히면 메뉴 이동을 처음부터 다시 시도');
   }
   await target.waitForTimeout(1000);
   return target;
