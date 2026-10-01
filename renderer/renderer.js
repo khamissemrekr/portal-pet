@@ -156,7 +156,11 @@ function makeButton(key, label, isHeader) {
       const result = await window.portalPet.launchService(key, region);
       statusDot.className = result.ok ? 'connected' : 'error';
       setPose(result.ok ? 'success' : 'error', { autoResetMs: 2500 });
-      if (!result.ok) showError(result.error || '알 수 없는 오류가 발생했습니다.');
+      if (!result.ok) {
+        showError(result.error === 'not-configured'
+          ? '먼저 설정에서 지역/비밀번호를 저장해 주세요.'
+          : (result.error || '알 수 없는 오류가 발생했습니다.'));
+      }
     } catch (e) {
       statusDot.className = 'error';
       setPose('error', { autoResetMs: 2500 });

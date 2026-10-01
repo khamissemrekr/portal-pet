@@ -332,6 +332,29 @@ function createTray() {
   tray.on('click', togglePanel);
 }
 
+// (수정, 사용자 요청: "프로그램 하단에 이런 로그를 보이지 않도록") 엔진에서 던진 오류를 그대로
+// 렌더러에 넘기면 메뉴 하단 오류 상자에 Playwright의 "Call log:" 같은 디버그 원문이 통째로
+// 찍혔다. 원문은 console.error로 로그 파일에만 남기고, 화면에는 짧은 안내 문구만 보낸다 -
+// 우리가 직접 만든 한글 안내(로그인 실패 등)는 뒤에 붙은 "(원인: ...)"만 떼고 그대로 쓴다.
+const LOG_HINT = ' 계속되면 트레이 메뉴 → "로그 폴더 열기"의 로그 파일을 보내 주세요.';
+function toUserFacingError(err) {
+  const raw = String(err?.message || err || '');
+  const head = raw.split('\n')[0];
+  if (/Timeout \d+ms exceeded/.test(raw)) {
+    return '화면이 응답하지 않아 이동하지 못했습니다. 팝업이 떠 있다면 닫은 뒤 다시 눌러 주세요.' + LOG_HINT;
+  }
+  if (/has been closed/.test(raw)) {
+    return '브라우저가 닫혀 작업을 마치지 못했습니다. 다시 눌러 주세요.';
+  }
+  if (/net::ERR_/.test(raw)) {
+    return '업무포털에 연결하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.';
+  }
+  if (/[가-힣]/.test(head) && !raw.includes('Call log')) {
+    return head.replace(/\s*\(원인:.*$/, '').trim();
+  }
+  return '작업을 마치지 못했습니다. 다시 시도해 주세요.' + LOG_HINT;
+}
+
 // ===== 서비스 실행: 렌더러의 버튼 클릭 -> Playwright 엔진 호출 =====
 ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
   const config = credentialStore.loadConfig();
@@ -356,7 +379,7 @@ ipcMain.handle('launch-service', async (_evt, serviceKey, regionInput) => {
     return result;
   } catch (err) {
     console.error('[PortalPet] launch-service failed:', err);
-    return { ok: false, error: err.message || String(err) };
+    return { ok: false, error: toUserFacingError(err) };
   }
 });
 
@@ -1223,7 +1246,7 @@ ipcMain.handle('refresh-portal-dashboard', async () => {
     return result;
   } catch (err) {
     console.error('[PortalPet] refresh-portal-dashboard failed:', err);
-    return { ok: false, error: err.message || String(err) };
+    return { ok: false, error: toUserFacingError(err) };
   }
 });
 
