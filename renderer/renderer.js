@@ -218,7 +218,7 @@ function makeDashboardRefreshButton() {
   const btn = document.createElement('button');
   btn.className = 'dashboard-refresh-btn';
   btn.type = 'button';
-  btn.title = '나이스 결재 / 공문 결재 현황 새로고침';
+  btn.title = '나이스 결재 / 공문 결재 / 체험신청서 / 체험보고서 현황 새로고침';
   // (버그 수정) btn.textContent에 직접 "⟳"를 넣고 버튼 자신(.dashboard-refresh-btn)에 회전
   // 애니메이션을 걸었더니, 화살표 글자만이 아니라 버튼의 테두리/배경까지 통째로 돌아 어색해
   // 보였다(사용자 지적) - 화살표만 담는 내부 span을 따로 두고, 그 span에만 회전 애니메이션을

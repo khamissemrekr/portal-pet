@@ -963,6 +963,18 @@ function nextFieldTripRetryAttempt(succeeded, retryAttempt) {
   return retryAttempt < FIELD_TRIP_RETRY_DELAYS_MS.length ? retryAttempt + 1 : 0;
 }
 
+// 자동 확인은 저장된 비밀번호로 자동 로그인할 수 있을 때만 돈다. 수동 새로고침(manual)은
+// refresh-portal-dashboard와 같은 기준 - autoLogin이 꺼져 있어도 사용자가 화면 앞에 있으니
+// null(직접 입력 대기)로 진행한다. 진행하면 안 되는 경우 undefined.
+function resolveFieldTripPassword(config, manual) {
+  const autoLogin = config.autoLogin !== false;
+  if (autoLogin && config.encryptedPasswordBase64) {
+    return credentialStore.decryptPassword(config.encryptedPasswordBase64);
+  }
+  if (manual && !autoLogin) return null;
+  return undefined;
+}
+
 let fieldTripApplyTimer = null;
 let lastFieldTripApplyPendingCount = null; // 직전 확인값 - 늘어났을 때만 알림
 
@@ -1003,16 +1015,16 @@ function notifyFieldTripApplyIncrease(count) {
   lastFieldTripApplyPendingCount = count;
 }
 
-async function runFieldTripApplyRefresh() {
+async function runFieldTripApplyRefresh({ manual = false } = {}) {
   const config = credentialStore.loadConfig();
-  if (!(config.subdomain || config.region)) return;
-  if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
+  if (!(config.subdomain || config.region)) return false;
+  const password = resolveFieldTripPassword(config, manual);
+  if (password === undefined) return false;
 
   const subdomain = REGIONS[config.region] || config.subdomain;
-  const password = credentialStore.decryptPassword(config.encryptedPasswordBase64);
 
   try {
-    console.log('[PortalPet] 교외체험학습신청서관리 자동 확인 실행...');
+    console.log(`[PortalPet] 교외체험학습신청서관리 ${manual ? '수동 새로고침' : '자동 확인'} 실행...`);
     const result = await loginEngine.checkFieldTripApplyPending(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       neisRoleLabel: resolveNeisRoleLabel(config),
       certUserName: config.certUserName || '',
@@ -1081,16 +1093,16 @@ function notifyFieldTripReportIncrease(count) {
   lastFieldTripReportPendingCount = count;
 }
 
-async function runFieldTripReportRefresh() {
+async function runFieldTripReportRefresh({ manual = false } = {}) {
   const config = credentialStore.loadConfig();
-  if (!(config.subdomain || config.region)) return;
-  if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
+  if (!(config.subdomain || config.region)) return false;
+  const password = resolveFieldTripPassword(config, manual);
+  if (password === undefined) return false;
 
   const subdomain = REGIONS[config.region] || config.subdomain;
-  const password = credentialStore.decryptPassword(config.encryptedPasswordBase64);
 
   try {
-    console.log('[PortalPet] 교외체험학습보고서관리 자동 확인 실행...');
+    console.log(`[PortalPet] 교외체험학습보고서관리 ${manual ? '수동 새로고침' : '자동 확인'} 실행...`);
     const result = await loginEngine.checkFieldTripReportPending(subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
       neisRoleLabel: resolveNeisRoleLabel(config),
       certUserName: config.certUserName || '',
@@ -1130,6 +1142,13 @@ ipcMain.handle('refresh-portal-dashboard', async () => {
       popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
     });
     notifyDashboardIncreases(result); // 수동 새로고침도 정기 확인과 동일하게 증가분 알림 대상에 포함
+    // (신규, 사용자 요청) 수동 새로고침 시 체험신청서/체험보고서 현황도 함께 조회해 배지를 갱신한다.
+    // 나이스 화면 안까지 들어가는 무거운 작업이라 결재 현황 배지는 먼저 이벤트로 반영하고, 자동
+    // 확인을 켜 둔 항목만(권한 없는 역할에서 매번 실패하지 않도록) 이어서 조회한다. 각 결과는
+    // field-trip-*-updated 이벤트로 배지에 반영되고, 버튼은 이게 끝날 때까지 돌아간다.
+    if (win && !win.isDestroyed()) win.webContents.send('portal-dashboard-updated', result);
+    if (config.fieldTripApplyAutoRefresh === true) await runFieldTripApplyRefresh({ manual: true });
+    if (config.fieldTripReportAutoRefresh === true) await runFieldTripReportRefresh({ manual: true });
     return result;
   } catch (err) {
     console.error('[PortalPet] refresh-portal-dashboard failed:', err);
