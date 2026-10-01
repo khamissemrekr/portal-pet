@@ -70,15 +70,40 @@ let isExpanded = false;
 let isMiniMode = false;
 let hoverTimer = null;
 
+// (신규, 사용자 요청) 캐릭터를 끌어 옮긴 위치를 저장해 두고 다음 실행 때 그 자리에서 시작한다.
+// 저장된 위치가 지금 연결된 어느 모니터의 작업 영역에도 온전히 들어가지 않으면(모니터 분리,
+// 해상도 변경 등) 화면 밖에 숨어버리지 않도록 기본 위치를 쓴다.
+function savedPetPositionIfVisible() {
+  const pos = credentialStore.loadConfig().petPosition;
+  if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return null;
+  const fits = screen.getAllDisplays().some(({ workArea: a }) =>
+    pos.x >= a.x && pos.y >= a.y && pos.x + PET_SIZE <= a.x + a.width && pos.y + PET_SIZE <= a.y + a.height
+  );
+  return fits ? pos : null;
+}
+
+let savePetPositionTimer = null;
+function savePetPositionSoon(pos) {
+  if (savePetPositionTimer) clearTimeout(savePetPositionTimer);
+  // 드래그 중에는 mousemove마다 호출되므로, 멈춘 뒤 한 번만 설정 파일에 쓴다.
+  savePetPositionTimer = setTimeout(() => {
+    savePetPositionTimer = null;
+    const config = credentialStore.loadConfig();
+    config.petPosition = { x: pos.x, y: pos.y };
+    credentialStore.saveConfig(config);
+  }, 500);
+}
+
 function createWindow() {
   const display = screen.getPrimaryDisplay();
   const { width: sw, height: sh } = display.workAreaSize;
+  const savedPos = savedPetPositionIfVisible();
 
   win = new BrowserWindow({
     width: PET_SIZE,
     height: PET_SIZE,
-    x: sw - PET_SIZE - 40,
-    y: Math.round(sh / 2 - PET_SIZE / 2),
+    x: savedPos ? savedPos.x : sw - PET_SIZE - 40,
+    y: savedPos ? savedPos.y : Math.round(sh / 2 - PET_SIZE / 2),
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -109,6 +134,7 @@ function ensureWindow() {
   if (!win || win.isDestroyed()) {
     createWindow();
     isExpanded = false;
+    petAnchor = null;
   }
 }
 
@@ -120,24 +146,35 @@ function clearPanelAutoCloseTimer() {
   panelAutoCloseTimer = null;
 }
 
+// (버그 수정, 사용자 재현: "캐릭터를 옮겨 둔 곳이 아니라 계속 초기 위치에서 창이 열림") 펼칠 때
+// x를 항상 "화면 오른쪽 끝 - 창 폭 - 40"으로 고정해서, 캐릭터를 어디로 옮겨 두든 메뉴가 초기
+// 위치에서 열렸고 접을 때도 그 자리에 남았다. 펼치기 직전 캐릭터의 위치(petAnchor)를 기억해
+// 그 자리를 기준으로 펼치고(캐릭터가 패널 왼쪽에 있는 레이아웃이라 x/y를 그대로 쓴다), 화면
+// 밖으로 넘칠 때만 안쪽으로 밀어 넣는다. 접을 때는 캐릭터를 원래 자리로 되돌린다.
+let petAnchor = null; // 펼쳐진 동안 캐릭터가 "있어야 할" 화면 좌표 {x, y}
+
+function expandedBoundsFor(anchor, height) {
+  const width = PET_SIZE + PANEL_WIDTH;
+  const area = screen.getDisplayNearestPoint(anchor).workArea;
+  const clampedHeight = Math.min(height, area.height - 40);
+  return {
+    x: Math.max(area.x, Math.min(anchor.x, area.x + area.width - width)),
+    y: Math.max(area.y, Math.min(anchor.y, area.y + area.height - clampedHeight - 20)),
+    width,
+    height: clampedHeight,
+  };
+}
+
 function togglePanel() {
   ensureWindow();
   isExpanded = !isExpanded;
   const bounds = win.getBounds();
-  const display = screen.getPrimaryDisplay();
-  const { width: sw, height: sh } = display.workAreaSize;
 
   clearPanelAutoCloseTimer();
 
   if (isExpanded) {
-    const newWidth = PET_SIZE + PANEL_WIDTH;
-    const newHeight = Math.max(PET_SIZE, PANEL_HEIGHT);
-    win.setBounds({
-      x: Math.max(0, sw - newWidth - 40),
-      y: Math.min(bounds.y, sh - newHeight - 20),
-      width: newWidth,
-      height: newHeight,
-    });
+    petAnchor = { x: bounds.x, y: bounds.y };
+    win.setBounds(expandedBoundsFor(petAnchor, Math.max(PET_SIZE, PANEL_HEIGHT)));
     const config = credentialStore.loadConfig();
     if (config.panelAutoCloseEnabled) {
       const ms = Math.max(1, Number(config.panelAutoCloseSeconds) || 10) * 1000;
@@ -147,7 +184,9 @@ function togglePanel() {
       }, ms);
     }
   } else {
-    win.setBounds({ ...bounds, width: PET_SIZE, height: PET_SIZE });
+    const anchor = petAnchor || { x: bounds.x, y: bounds.y };
+    petAnchor = null;
+    win.setBounds({ x: anchor.x, y: anchor.y, width: PET_SIZE, height: PET_SIZE });
   }
   win.webContents.send('panel-state', isExpanded);
 }
@@ -160,18 +199,11 @@ function togglePanel() {
 // 않도록 화면 높이 기준으로 상한을 둔다.
 ipcMain.on('resize-panel', (_evt, contentHeight) => {
   if (!win || win.isDestroyed() || !isExpanded) return;
-  const display = screen.getPrimaryDisplay();
-  const { height: sh } = display.workAreaSize;
-  const maxHeight = sh - 40;
-  const newHeight = Math.max(PET_SIZE, Math.min(Math.ceil(Number(contentHeight) || 0), maxHeight));
   const bounds = win.getBounds();
-  if (newHeight === bounds.height) return;
-  win.setBounds({
-    x: bounds.x,
-    y: Math.min(bounds.y, sh - newHeight - 20),
-    width: bounds.width,
-    height: newHeight,
-  });
+  const anchor = petAnchor || { x: bounds.x, y: bounds.y };
+  const next = expandedBoundsFor(anchor, Math.max(PET_SIZE, Math.ceil(Number(contentHeight) || 0)));
+  if (next.height === bounds.height && next.y === bounds.y && next.x === bounds.x) return;
+  win.setBounds(next);
 });
 
 // ===== 미니 모드: 화면 오른쪽 가장자리에 숨었다가 커서를 올리면 튀어나옴 =====
@@ -375,6 +407,9 @@ ipcMain.on('move-pet-by', (_evt, dx, dy) => {
   if (isMiniMode) exitMiniMode();
   const b = win.getBounds();
   win.setBounds({ ...b, x: Math.round(b.x + dx), y: Math.round(b.y + dy) });
+  // 펼친 상태에서 끌어 옮기면 캐릭터가 지금 보이는 자리(창 왼쪽 위)를 접을 때 돌아갈 자리로 삼는다.
+  if (petAnchor) petAnchor = { x: Math.round(b.x + dx), y: Math.round(b.y + dy) };
+  savePetPositionSoon({ x: Math.round(b.x + dx), y: Math.round(b.y + dy) });
 });
 
 // ===== 최초 설정(지역 + 인증서 비밀번호) =====
@@ -682,6 +717,7 @@ ipcMain.handle('save-setup', (_evt, {
     popupAutoCloseEnabled: popupAutoCloseEnabled !== false,
     uiTheme: uiTheme === 'dark' ? 'dark' : 'light', // 화면 테마(라이트/다크) - 설정 창/정보 창/캐릭터 메뉴 모두 이 값을 따른다.
     characterImages: safeCharacterImages, // 사용자가 올린 캐릭터 이미지(평상시/드래그할 때/오래 안 쓸 때) - 비어있으면 기본 호랑이 이미지 사용
+    petPosition: previous.petPosition ?? null, // 설정 창 항목이 아니라 드래그로 저장되는 값 - 설정 저장 때 지워지지 않게 유지
   };
   credentialStore.saveConfig(config);
   if (setupWin) setupWin.close();
@@ -744,54 +780,89 @@ async function runStartupAutoLaunch() {
     ? credentialStore.decryptPassword(config.encryptedPasswordBase64)
     : null;
 
-  const steps = [];
-  if (config.autoLaunchMessenger) steps.push('gone_msg');
-  if (config.autoLaunchSchedule) steps.push('gone_schedule');
+  const launchOptions = {
+    minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
+    neisRoleLabel: resolveNeisRoleLabel(config),
+    certUserName: config.certUserName || '',
+    popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
+  };
+  const launch = (serviceKey) => loginEngine.launchService(
+    serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', launchOptions
+  );
 
-  for (const serviceKey of steps) {
-    // (신규, 사용자 재현: 부팅 후 자동 실행에서만 메신저 로그인이 조용히 실패) 메신저(gone_msg)는
-    // launchService가 끝나도 "브리지 탭이 정상적으로 닫혔다"만 확인할 뿐, 그 뒤에 뜨는 별개의
-    // 네이티브 앱(Brity 메신저)이 실제로 로그인에 성공했는지는 검증하지 않는다 - 부팅 직후에는
-    // 그 앱 자신이 아직 초기화 중이라 조용히 실패할 수 있다(waitForSystemToSettleIfJustBooted
-    // 주석 참고). verifyBrityMessengerLaunchOutcome으로 실패 신호(창이 끝내 안 뜸 / Launcher
-    // 중복 실행·"already running client" 로그)를 확인해서, 실패로 보일 때만 한 번 더 시도한다.
-    // 신호를 아예 못 잡은 경우(checked:false)는 "성공했는지 몰라서"이지 "실패를 확인해서"가
-    // 아니므로 재시도하지 않는다 - 이미 성공한 상태에서 재시도하면 두 경로가 동시에 SSO 티켓을
-    // 소모하는 그 이중 실행 레이스(바로 위 launchService 안의 버그 수정 주석 참고)를 스스로
-    // 재현하게 되기 때문이다.
-    const maxAttempts = serviceKey === 'gone_msg' ? 2 : 1;
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const attemptStartedAt = new Date();
+  // (성능 수정, 사용자 요청: "모든 로딩이 끝날 때까지 너무 오래 걸림") 예전엔 메신저 실행 뒤
+  // verifyBrityMessengerLaunchOutcome(최대 15초) + 재시도 대기(5초) + 재실행 + 재확인까지 전부 끝난
+  // 뒤에야 일정 열기와 결재 현황 확인이 시작됐다(실측 로그 2026-09-29: 약 60초 중 36초가 브라우저를
+  // 쓰지 않는 메신저 확인 대기). 확인은 OS 프로세스/로그만 보므로 브라우저 작업과 겹쳐도 안전하다 -
+  // 메신저는 실행만 기다리고, 성공 여부 확인과 재시도는 백그라운드로 돌린다. 재시도의 launchService는
+  // 여전히 loginEngine의 순차 큐를 타므로 브라우저 작업끼리 동시에 실행되지는 않는다.
+  if (config.autoLaunchMessenger) {
+    const attemptStartedAt = new Date();
+    let launched = false;
+    try {
+      console.log('[PortalPet] 시작 시 자동 실행: gone_msg');
+      await launch('gone_msg');
+      launched = true;
+    } catch (err) {
+      // launchService 자체가 던진 에러는 재시도해도 같은 이유로 또 실패할 가능성이 높음
+      console.error('[PortalPet] 자동 실행(gone_msg) 실패:', err);
+    }
+    if (launched) {
+      verifyMessengerAndRetryInBackground(launch, attemptStartedAt).catch((err) =>
+        console.error('[PortalPet] 메신저 로그인 확인/재시도 중 오류:', err)
+      );
+    }
+  }
+
+  if (config.autoLaunchSchedule) {
+    try {
+      console.log('[PortalPet] 시작 시 자동 실행: gone_schedule');
+      await launch('gone_schedule');
+    } catch (err) {
+      console.error('[PortalPet] 자동 실행(gone_schedule) 실패:', err);
+    }
+  }
+}
+
+// (신규, 사용자 재현: 부팅 후 자동 실행에서만 메신저 로그인이 조용히 실패) 메신저(gone_msg)는
+// launchService가 끝나도 "브리지 탭이 정상적으로 닫혔다"만 확인할 뿐, 그 뒤에 뜨는 별개의
+// 네이티브 앱(Brity 메신저)이 실제로 로그인에 성공했는지는 검증하지 않는다 - 부팅 직후에는
+// 그 앱 자신이 아직 초기화 중이라 조용히 실패할 수 있다(waitForSystemToSettleIfJustBooted
+// 주석 참고). verifyBrityMessengerLaunchOutcome으로 실패 신호(창이 끝내 안 뜸 / Launcher
+// 중복 실행·"already running client" 로그)를 확인해서, 실패로 보일 때만 한 번 더 시도한다.
+// 신호를 아예 못 잡은 경우(checked:false)는 "성공했는지 몰라서"이지 "실패를 확인해서"가
+// 아니므로 재시도하지 않는다 - 이미 성공한 상태에서 재시도하면 두 경로가 동시에 SSO 티켓을
+// 소모하는 그 이중 실행 레이스(launchService 안의 버그 수정 주석 참고)를 스스로 재현하게 되기
+// 때문이다. runStartupAutoLaunch가 기다리지 않도록 백그라운드에서 실행된다.
+async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt) {
+  const maxAttempts = 2;
+  let attemptStartedAt = firstAttemptStartedAt;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      attemptStartedAt = new Date();
       try {
-        console.log(`[PortalPet] 시작 시 자동 실행: ${serviceKey}${attempt > 1 ? ` (재시도 ${attempt}/${maxAttempts})` : ''}`);
-        await loginEngine.launchService(serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', {
-          minimizeMessengerOnLaunch: config.minimizeMessengerOnLaunch !== false,
-          neisRoleLabel: resolveNeisRoleLabel(config),
-          certUserName: config.certUserName || '',
-          popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
-        });
+        console.log(`[PortalPet] 시작 시 자동 실행: gone_msg (재시도 ${attempt}/${maxAttempts})`);
+        await launch('gone_msg');
       } catch (err) {
-        console.error(`[PortalPet] 자동 실행(${serviceKey}) 실패:`, err);
-        break; // launchService 자체가 던진 에러는 재시도해도 같은 이유로 또 실패할 가능성이 높음
+        console.error('[PortalPet] 자동 실행(gone_msg) 재시도 실패:', err);
+        return;
       }
+    }
 
-      if (serviceKey !== 'gone_msg') break;
-
-      const outcome = await loginEngine.verifyBrityMessengerLaunchOutcome({ timeoutMs: 15000, sinceTime: attemptStartedAt });
-      if (!outcome.checked) {
-        console.log('[PortalPet] 메신저 로그인 성공 여부를 확인할 수 없음 - 재시도하지 않고 넘어감');
-        break;
-      }
-      if (outcome.windowFound && !outcome.duplicateDetected) {
-        console.log('[PortalPet] 메신저 로그인 확인됨');
-        break;
-      }
-      if (attempt < maxAttempts) {
-        console.log(`[PortalPet] 메신저 로그인 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 잠시 뒤 재시도`);
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      } else {
-        console.log(`[PortalPet] 메신저 로그인 재시도 후에도 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 더 이상 재시도하지 않음`);
-      }
+    const outcome = await loginEngine.verifyBrityMessengerLaunchOutcome({ timeoutMs: 15000, sinceTime: attemptStartedAt });
+    if (!outcome.checked) {
+      console.log('[PortalPet] 메신저 로그인 성공 여부를 확인할 수 없음 - 재시도하지 않고 넘어감');
+      return;
+    }
+    if (outcome.windowFound && !outcome.duplicateDetected) {
+      console.log('[PortalPet] 메신저 로그인 확인됨');
+      return;
+    }
+    if (attempt < maxAttempts) {
+      console.log(`[PortalPet] 메신저 로그인 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 잠시 뒤 재시도`);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    } else {
+      console.log(`[PortalPet] 메신저 로그인 재시도 후에도 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 더 이상 재시도하지 않음`);
     }
   }
 }
