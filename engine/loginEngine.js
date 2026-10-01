@@ -717,6 +717,13 @@ async function completeCertLoginIfNeeded(page, password) {
   const signal = await raceLoginSignals(page, 15000);
   console.log('[PortalPet] 로그인 상태 판별 신호:', signal, '| url:', page.url());
 
+  // (버그 수정, 사용자 로그 2026-10-01 08:50) 탭/브라우저가 그 사이 닫히면 raceLoginSignals가
+  // 즉시 null을 돌려주는데, 이를 "로그인 불필요"로 오판해 뒤 단계에서 엉뚱한 오류로 터졌다 -
+  // 닫힌 경우는 바로 명확한 오류로 끝내고 호출 쪽(자동 확인 재시도)에 맡긴다.
+  if (signal === null && page.isClosed()) {
+    throw new Error('로그인 확인 중 브라우저 탭이 닫힘(Target page, context or browser has been closed)');
+  }
+
   if (signal === 'portal-home' || signal === null) {
     // 이미 로그인돼 메뉴가 보이거나, 셋 다 못 잡았으면(판단 불가) 로그인 절차 없이 통과 -
     // 예전에도 "모달 못 찾음 = 이미 로그인 또는 필요 없음"으로 동일하게 처리했다.

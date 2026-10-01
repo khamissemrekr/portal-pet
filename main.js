@@ -939,10 +939,34 @@ function msUntilNextFieldTripCheck(config) {
   return next.getTime() - now.getTime();
 }
 
+// (버그 수정, 사용자 재현: 체험보고서가 "접수대기/미상신"인데 배지가 0으로 남아 알림이 안 옴)
+// 하루 두 번만 확인하다 보니, 그 시각에 한 번 실패하면(실측 로그 2026-10-01 08:50 - 밤새 세션이
+// 끊겨 재로그인하던 중 "Target page, context or browser has been closed"로 실패) 다음 정해진
+// 시각(15:00)까지 6시간 넘게 아무 확인도 하지 않아 그 사이 들어온 건을 놓쳤다. 확인이 실패하거나
+// 값을 신뢰할 수 없으면(null) 짧은 간격으로 몇 번 다시 시도한다 - 컨텍스트가 닫힌 경우 엔진이
+// 다음 호출에서 브라우저를 새로 띄우므로 재시도로 복구된다. 다음 정규 시각이 더 가까우면 그걸 따른다.
+const FIELD_TRIP_RETRY_DELAYS_MS = [2 * 60 * 1000, 10 * 60 * 1000, 30 * 60 * 1000];
+
+function fieldTripNextDelay(config, retryAttempt, label) {
+  const regularDelay = msUntilNextFieldTripCheck(config);
+  const retryDelay = retryAttempt > 0 ? FIELD_TRIP_RETRY_DELAYS_MS[retryAttempt - 1] : null;
+  if (retryDelay != null && retryDelay < regularDelay) {
+    console.log(`[PortalPet] ${label} 직전 확인 실패 - ${Math.round(retryDelay / 60000)}분 후 재시도(${retryAttempt}/${FIELD_TRIP_RETRY_DELAYS_MS.length})`);
+    return { delay: retryDelay, retryAttempt };
+  }
+  console.log(`[PortalPet] ${label} 다음 자동 확인까지 ${Math.round(regularDelay / 60000)}분 남음(매일 ${config.fieldTripCheckTime1 || '08:50'}, ${config.fieldTripCheckTime2 || '15:00'})`);
+  return { delay: regularDelay, retryAttempt: 0 };
+}
+
+function nextFieldTripRetryAttempt(succeeded, retryAttempt) {
+  if (succeeded) return 0;
+  return retryAttempt < FIELD_TRIP_RETRY_DELAYS_MS.length ? retryAttempt + 1 : 0;
+}
+
 let fieldTripApplyTimer = null;
 let lastFieldTripApplyPendingCount = null; // 직전 확인값 - 늘어났을 때만 알림
 
-function scheduleFieldTripApplyRefresh() {
+function scheduleFieldTripApplyRefresh(retryAttempt = 0) {
   if (fieldTripApplyTimer) { clearTimeout(fieldTripApplyTimer); fieldTripApplyTimer = null; }
 
   const config = credentialStore.loadConfig();
@@ -953,12 +977,12 @@ function scheduleFieldTripApplyRefresh() {
   if (!(config.subdomain || config.region)) return;
   if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
 
-  const delay = msUntilNextFieldTripCheck(config);
-  console.log(`[PortalPet] 교외체험학습신청서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 ${config.fieldTripCheckTime1 || '08:50'}, ${config.fieldTripCheckTime2 || '15:00'})`);
+  const next = fieldTripNextDelay(config, retryAttempt, '교외체험학습신청서관리');
   fieldTripApplyTimer = setTimeout(async () => {
-    await runFieldTripApplyRefresh();
-    scheduleFieldTripApplyRefresh(); // 다음 예정 시각으로 재예약
-  }, delay);
+    const succeeded = await runFieldTripApplyRefresh();
+    // 다음 예정 시각으로 재예약(실패했으면 짧은 간격 재시도 우선)
+    scheduleFieldTripApplyRefresh(nextFieldTripRetryAttempt(succeeded, next.retryAttempt));
+  }, next.delay);
 }
 
 function notifyFieldTripApplyIncrease(count) {
@@ -1001,11 +1025,15 @@ async function runFieldTripApplyRefresh() {
     if (result?.ok && result.pendingCount != null) {
       notifyFieldTripApplyIncrease(result.pendingCount);
       if (win && !win.isDestroyed()) win.webContents.send('field-trip-apply-updated', result);
-    } else if (result?.ok) {
+      return true;
+    }
+    if (result?.ok) {
       console.log('[PortalPet] 교외체험학습신청서관리 - 이번 확인 값을 신뢰할 수 없어 배지는 그대로 둠');
     }
+    return false;
   } catch (err) {
     console.error('[PortalPet] 교외체험학습신청서관리 자동 확인 실패:', err);
+    return false;
   }
 }
 
@@ -1016,7 +1044,7 @@ async function runFieldTripApplyRefresh() {
 let fieldTripReportTimer = null;
 let lastFieldTripReportPendingCount = null;
 
-function scheduleFieldTripReportRefresh() {
+function scheduleFieldTripReportRefresh(retryAttempt = 0) {
   if (fieldTripReportTimer) { clearTimeout(fieldTripReportTimer); fieldTripReportTimer = null; }
 
   const config = credentialStore.loadConfig();
@@ -1027,12 +1055,12 @@ function scheduleFieldTripReportRefresh() {
   if (!(config.subdomain || config.region)) return;
   if (config.autoLogin === false || !config.encryptedPasswordBase64) return;
 
-  const delay = msUntilNextFieldTripCheck(config);
-  console.log(`[PortalPet] 교외체험학습보고서관리 다음 자동 확인까지 ${Math.round(delay / 60000)}분 남음(매일 ${config.fieldTripCheckTime1 || '08:50'}, ${config.fieldTripCheckTime2 || '15:00'})`);
+  const next = fieldTripNextDelay(config, retryAttempt, '교외체험학습보고서관리');
   fieldTripReportTimer = setTimeout(async () => {
-    await runFieldTripReportRefresh();
-    scheduleFieldTripReportRefresh(); // 다음 예정 시각으로 재예약
-  }, delay);
+    const succeeded = await runFieldTripReportRefresh();
+    // 다음 예정 시각으로 재예약(실패했으면 짧은 간격 재시도 우선)
+    scheduleFieldTripReportRefresh(nextFieldTripRetryAttempt(succeeded, next.retryAttempt));
+  }, next.delay);
 }
 
 function notifyFieldTripReportIncrease(count) {
@@ -1071,11 +1099,15 @@ async function runFieldTripReportRefresh() {
     if (result?.ok && result.pendingCount != null) {
       notifyFieldTripReportIncrease(result.pendingCount);
       if (win && !win.isDestroyed()) win.webContents.send('field-trip-report-updated', result);
-    } else if (result?.ok) {
+      return true;
+    }
+    if (result?.ok) {
       console.log('[PortalPet] 교외체험학습보고서관리 - 이번 확인 값을 신뢰할 수 없어 배지는 그대로 둠');
     }
+    return false;
   } catch (err) {
     console.error('[PortalPet] 교외체험학습보고서관리 자동 확인 실패:', err);
+    return false;
   }
 }
 
