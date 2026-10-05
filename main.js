@@ -11,7 +11,7 @@ const { spawn } = require('node:child_process');
 const { autoUpdater } = require('electron-updater');
 const credentialStore = require('./engine/credentialStore');
 const loginEngine = require('./engine/loginEngine');
-const { REGIONS } = require('./engine/regionMap');
+const { REGIONS, buildPortalUrl, GONE_URL_BY_SUBDOMAIN } = require('./engine/regionMap');
 const { listBrowserProfiles, findBrowserExecutable } = require('./engine/browserProfiles');
 const { startDialogSuppressor, stopDialogSuppressor } = require('./engine/dialogSuppressor');
 const { startFileLogger, getLogFilePath } = require('./engine/fileLogger');
@@ -830,6 +830,43 @@ async function waitForSystemToSettleIfJustBooted() {
   await new Promise((resolve) => setTimeout(resolve, remainingMs));
 }
 
+// (신규, 사용자 로그 2026-10-06 부팅 후 자동 실행: G-ONE 첫 진입이 chrome-error://chromewebdata/로
+// 끝나고 K-에듀파인/나이스 현황도 비어 있었음) 부팅 직후엔 uptime이 지나도 네트워크/사내 SSO 서버에
+// 아직 닿지 않을 수 있다. 자동 실행 전에 포털과 G-ONE 호스트에 실제로 TCP/TLS 연결이 되는지 짧게
+// 확인하고, 안 되면 최대 maxWaitMs까지 기다린다(끝내 안 돼도 어차피 시도는 한다 - 막지 않는다).
+function canReachHost(host, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    const req = require('node:https').request(
+      { host, method: 'HEAD', path: '/', timeout: timeoutMs },
+      (res) => { res.resume(); resolve(true); }
+    );
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
+
+async function waitForNetworkReady(hosts, maxWaitMs = 90000) {
+  const startedAt = Date.now();
+  let loggedWaiting = false;
+  for (;;) {
+    const results = await Promise.all(hosts.map((h) => canReachHost(h)));
+    if (results.every(Boolean)) {
+      if (loggedWaiting) console.log(`[PortalPet] 네트워크 준비됨(${Math.round((Date.now() - startedAt) / 1000)}초 대기)`);
+      return true;
+    }
+    if (Date.now() - startedAt >= maxWaitMs) {
+      console.log(`[PortalPet] 네트워크 준비 대기 시간 초과(${hosts.filter((_, i) => !results[i]).join(', ')} 접속 불가) - 그대로 진행`);
+      return false;
+    }
+    if (!loggedWaiting) {
+      console.log(`[PortalPet] 접속 확인 실패(${hosts.filter((_, i) => !results[i]).join(', ')}) - 네트워크 준비를 기다리는 중...`);
+      loggedWaiting = true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
 // ===== 프로그램 실행 시 자동 실행(메신저/일정) =====
 // 사용자 설정(체크박스)에 따라 앱이 뜰 때 자동으로 G-ONE 메신저 로그인/일정 페이지를 띄워둔다.
 // "메신저 자동 실행"만 체크: 메신저만. "일정 자동 실행"만 체크: 일정만. 둘 다 체크: 메신저
@@ -849,6 +886,8 @@ async function runStartupAutoLaunch() {
   }
   await waitForSystemToSettleIfJustBooted();
   const subdomain = REGIONS[config.region] || config.subdomain;
+  const hostOf = (u) => { try { return new URL(u).hostname; } catch { return null; } };
+  await waitForNetworkReady([hostOf(buildPortalUrl(subdomain)), hostOf(GONE_URL_BY_SUBDOMAIN[subdomain])].filter(Boolean));
   // 자동 로그인이 꺼져 있으면 password를 null로 넘겨 - launchService가 인증서 창에서
   // 사용자의 수동 입력을 기다린다(자동 실행은 되지만 로그인만 직접 하게 됨).
   const password = (autoLogin && config.encryptedPasswordBase64)

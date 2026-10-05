@@ -45,6 +45,18 @@ async function gotoWithRetry(page, url, opts = {}) {
     // 로그인 페이지로 되돌아가는 리다이렉트를 스스로 걸어, 그게 우리 goto를 가로채 던지는
     // 경우가 있다 - cold start의 ERR_ABORTED와 같은 성격의 일시적 레이스이므로 잠깐 쉬었다가
     // 한 번 더 시도한다(실패해도 어차피 호출 쪽의 로그인 재확립 로직이 뒤이어 처리한다).
+    // (신규, 사용자 로그 2026-10-06) 부팅 직후엔 DNS/네트워크가 아직 안 올라와 일시적 net::ERR_*로
+    // 실패하기도 한다 - 길게 쉬면서 몇 번 더 시도한다.
+    if (/ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|CONNECTION_(RESET|CLOSED|REFUSED|TIMED_OUT)|TIMED_OUT|ADDRESS_UNREACHABLE)/.test(message)) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        console.log(`[PortalPet] goto(${url}) 네트워크 오류(${message.split('\n')[0]}) - 5초 뒤 재시도 ${attempt}/3`);
+        await page.waitForTimeout(5000);
+        try { return await page.goto(url, opts); } catch (e2) {
+          if (!/ERR_/.test(e2.message || '')) throw e2;
+          if (attempt === 3) throw e2;
+        }
+      }
+    }
     if (!/ERR_ABORTED|interrupted by another navigation/.test(message)) throw e;
     console.log(`[PortalPet] goto(${url}) 방해받음(${/ERR_ABORTED/.test(message) ? 'cold browser start' : '페이지 자체 리다이렉트'}로 보임) - 1초 뒤 재시도`);
     await page.waitForTimeout(1000);
@@ -703,7 +715,16 @@ async function raceLoginSignals(page, timeout) {
  * 보이면 "로그인 전 초기 화면으로 되돌아갔다"는 확실한 신호이므로, 이 재등장 여부로 오판을 줄인다.
  */
 async function didCertLoginBounceBackToLoginButton(page) {
-  return page.locator('#btnLgn').isVisible().catch(() => false);
+  if (!(await page.locator('#btnLgn').isVisible().catch(() => false))) return false;
+  // (수정, 사용자 로그 2026-10-06 부팅) 모달이 닫힌 직후엔 서버 쪽 세션 확립이 아직 안 끝나
+  // 로그인 버튼이 잠깐 보이다가 곧 포털 홈으로 넘어가는 경우가 있다(실제로 14초 뒤 포털 홈 도달) -
+  // 곧바로 실패로 단정하지 않고, 버튼이 사라지거나 로그인 페이지를 벗어나는지 잠깐 지켜본다.
+  const recovered = await page.waitForFunction(
+    () => !document.querySelector('#btnLgn') || document.querySelector('#btnLgn').offsetParent === null
+      || !location.href.includes('bpm_lgn_lg00_001'),
+    null, { timeout: 8000 }
+  ).then(() => true).catch(() => false);
+  return !recovered;
 }
 
 async function completeCertLoginIfNeeded(page, password) {
@@ -3063,6 +3084,16 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
     // 보인다 - "메신저"/"일정" 텍스트를 못 찾는 게 아니라 애초에 G-ONE에 도착도 못 한 것이므로,
     // 텍스트를 찾기 전에 먼저 실제로 G-ONE에 도착했는지 확인하고, 아니면 잠깐 쉬었다가 SSO
     // 링크를 다시 읽어 한 번 더 시도한다.
+    // (신규, 사용자 로그 2026-10-06 부팅: chrome-error://chromewebdata/) 브라우저 네트워크 오류 페이지는
+    // 세션 문제가 아니라 일시적 연결 실패일 가능성이 높다 - 로그인부터 다시 하기 전에 같은 링크를
+    // 잠깐 쉬었다가 두 번까지 그대로 재시도한다.
+    for (let i = 1; i <= 2 && goneUrl && target.url().startsWith('chrome-error:') && !(await isOnSystem(target, 'gone', subdomain)); i++) {
+      console.log(`[PortalPet] G-ONE 진입이 브라우저 오류 페이지로 끝남 - 5초 뒤 같은 링크 재시도 ${i}/2`);
+      await target.waitForTimeout(5000);
+      await gotoWithRetry(target, goneUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] G-ONE 링크 재시도 goto 실패:', e.message));
+      await closeAnyPopupsForAWhile(target);
+      await target.waitForTimeout(900);
+    }
     if (!(await isOnSystem(target, 'gone', subdomain))) {
       console.log('[PortalPet] G-ONE 진입 실패로 보임(SSO 오류 페이지 추정) - 인증서 로그인부터 재시도:', target.url());
       // (버그 수정, 사용자 재현: 2026-09-07 부팅 후 자동 실행 시 재발) 예전엔 4초만 대기한
