@@ -722,7 +722,7 @@ async function didCertLoginBounceBackToLoginButton(page) {
   const recovered = await page.waitForFunction(
     () => !document.querySelector('#btnLgn') || document.querySelector('#btnLgn').offsetParent === null
       || !location.href.includes('bpm_lgn_lg00_001'),
-    null, { timeout: 8000 }
+    null, { timeout: 20000 }
   ).then(() => true).catch(() => false);
   return !recovered;
 }
@@ -3211,6 +3211,13 @@ async function findExistingPortalHomePage(context, subdomain, excludePage = null
     // 다음 주기까지 남기지 않는다. page.close()가 트리거하는 'close' 리스너가 mainServiceTabs/
     // sharedPage 정리는 알아서 해준다.
     console.log('[PortalPet] 되살리기 실패한 leftover 포털 홈 탭을 정리함(탭 누적 방지):', p.url());
+    // (버그 수정, 사용자 로그 2026-10-06 10:57/12:27) 이 탭이 브라우저의 마지막 탭이면 닫는 순간 크롬
+    // 창 자체가 종료돼 뒤이은 newPage가 "Failed to open a new tab"으로 실패하고 그 주기의 결재 현황
+    // 확인이 통째로 빠졌다 - 닫기 전에 다른 탭이 없으면 빈 탭을 먼저 열어 브라우저를 살려둔다
+    // (getPage가 이 빈 탭을 이어 쓴다).
+    if (!context.pages().some((other) => other !== p && !other.isClosed())) {
+      await context.newPage().catch((e) => console.log('[PortalPet] 마지막 탭 보호용 빈 탭 열기 실패:', e.message));
+    }
     await closePageSafely(p, { label: 'leftover 포털 홈 탭' });
   }
   return null;
