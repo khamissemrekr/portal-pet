@@ -15,6 +15,7 @@ const { REGIONS, buildPortalUrl, GONE_URL_BY_SUBDOMAIN } = require('./engine/reg
 const { listBrowserProfiles, findBrowserExecutable } = require('./engine/browserProfiles');
 const { startDialogSuppressor, stopDialogSuppressor } = require('./engine/dialogSuppressor');
 const { startFileLogger, getLogFilePath } = require('./engine/fileLogger');
+const certAgentWatch = require('./engine/certAgentWatch');
 
 // 중복 실행 방지 - 이게 없으면(원래 없었음) Windows 시작프로그램 등록이 중복되거나(예: 예전
 // 버전이 만들어둔 시작프로그램 폴더 바로가기 + 이후 추가된 트레이 체크박스의 레지스트리 등록이
@@ -872,7 +873,7 @@ async function waitForNetworkReady(hosts, maxWaitMs = 90000) {
 // "메신저 자동 실행"만 체크: 메신저만. "일정 자동 실행"만 체크: 일정만. 둘 다 체크: 메신저
 // 로그인부터 한 뒤 이어서 일정 페이지를 띄운다(요청하신 순서) - 어차피 gone_schedule은
 // launchService 안에서 "이미 G-ONE에 있으면 포털 재방문 생략" 로직 덕분에 바로 이어진다.
-async function runStartupAutoLaunch() {
+async function runStartupAutoLaunch(isRetry = false) {
   const config = credentialStore.loadConfig();
   if (!config.autoLaunchMessenger && !config.autoLaunchSchedule) return;
   if (!(config.subdomain || config.region)) {
@@ -888,6 +889,9 @@ async function runStartupAutoLaunch() {
   const subdomain = REGIONS[config.region] || config.subdomain;
   const hostOf = (u) => { try { return new URL(u).hostname; } catch { return null; } };
   await waitForNetworkReady([hostOf(buildPortalUrl(subdomain)), hostOf(GONE_URL_BY_SUBDOMAIN[subdomain])].filter(Boolean));
+  // (신규, 사용자 재현: 부팅 시 인증서 보안프로그램 재설치로 로그인 실패) AnySign/Delfino/Veraport 등이
+  // 업데이트·재설치 중이면 끝날 때까지 기다린 뒤 시작한다(최대 2분, 끝내 안 끝나도 진행).
+  await certAgentWatch.waitForCertAgentsSettled();
   // 자동 로그인이 꺼져 있으면 password를 null로 넘겨 - launchService가 인증서 창에서
   // 사용자의 수동 입력을 기다린다(자동 실행은 되지만 로그인만 직접 하게 됨).
   const password = (autoLogin && config.encryptedPasswordBase64)
@@ -900,6 +904,7 @@ async function runStartupAutoLaunch() {
     certUserName: config.certUserName || '',
     popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
   };
+  let loginFailed = false;
   const launch = (serviceKey) => loginEngine.launchService(
     serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', launchOptions
   );
@@ -918,6 +923,7 @@ async function runStartupAutoLaunch() {
       await launch('gone_msg');
       launched = true;
     } catch (err) {
+      loginFailed = true;
       // launchService 자체가 던진 에러는 재시도해도 같은 이유로 또 실패할 가능성이 높음
       console.error('[PortalPet] 자동 실행(gone_msg) 실패:', err);
     }
@@ -933,7 +939,22 @@ async function runStartupAutoLaunch() {
       console.log('[PortalPet] 시작 시 자동 실행: gone_schedule');
       await launch('gone_schedule');
     } catch (err) {
+      loginFailed = true;
       console.error('[PortalPet] 자동 실행(gone_schedule) 실패:', err);
+    }
+  }
+
+  // 로그인 자체가 실패했으면(보안프로그램 문제 등) 3분 뒤 딱 한 번 전체를 다시 시도하고, 그래도
+  // 안 되면 알림으로 알려 사용자가 수동으로 누를 수 있게 한다.
+  if (loginFailed) {
+    if (!isRetry) {
+      console.log('[PortalPet] 시작 시 자동 로그인 실패 - 3분 뒤 한 번 더 전체 재시도');
+      setTimeout(() => runStartupAutoLaunch(true).catch((e) => console.error('[PortalPet] 자동 실행 재시도 오류:', e)), 3 * 60 * 1000);
+    } else if (Notification.isSupported()) {
+      new Notification({
+        title: 'PortalPet - 자동 로그인 실패',
+        body: '부팅 직후 인증서 보안프로그램이 준비되지 않아 로그인하지 못했습니다. 캐릭터 메뉴에서 직접 눌러 주세요.',
+      }).show();
     }
   }
 }

@@ -14,6 +14,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const os = require('node:os');
 const { app } = require('electron');
+const certAgentWatch = require('./certAgentWatch');
 const {
   buildPortalUrl, buildNeisUrl, buildEdufineUrl, buildEdmgrUrl, GONE_URL_BY_SUBDOMAIN,
   STAFF_HOME_URL_BY_SUBDOMAIN, EDASAN_URL_BY_SUBDOMAIN, HICOACHING_URL_BY_SUBDOMAIN,
@@ -727,7 +728,31 @@ async function didCertLoginBounceBackToLoginButton(page) {
   return !recovered;
 }
 
+/**
+ * (신규, 사용자 재현: 부팅 시 인증서 보안프로그램이 재설치/재시작되는 중이면 로그인이 실패) 인증서
+ * 모달이 닫힌 뒤 로그인 버튼 화면으로 되돌아가면(loggedIn:false), 보안프로그램(AnySign/Delfino/
+ * Veraport 등)이 설치 중이거나 최근에 (재)시작된 경우에 한해 준비될 때까지 기다린 뒤 최대 2번
+ * 다시 시도한다. 비밀번호가 틀려서 되돌아간 경우에는 재시도하지 않는다 - 틀린 비밀번호를 반복
+ * 제출하면 인증서가 잠길 수 있다(위 findVisibleLeafCenterInPage 주석 참고).
+ */
 async function completeCertLoginIfNeeded(page, password) {
+  let result = await completeCertLoginOnce(page, password);
+  for (let retry = 1; retry <= 2 && result.loggedIn === false && password && !page.isClosed(); retry++) {
+    const agents = await certAgentWatch.checkCertAgents();
+    if (!agents.recentlyRestarted) {
+      console.log('[PortalPet] 인증서 로그인 실패 - 보안프로그램이 최근 재시작/설치된 흔적이 없어(비밀번호 문제 가능성) 재시도하지 않음');
+      break;
+    }
+    console.log(`[PortalPet] 인증서 로그인 실패 + 보안프로그램 재시작/설치 흔적(${agents.reason || '최근 시작'}) - 준비를 기다린 뒤 재시도 ${retry}/2`);
+    await certAgentWatch.waitForCertAgentsSettled(90000);
+    await page.waitForTimeout(10000 * retry).catch(() => {});
+    await page.reload({ waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] 로그인 페이지 새로고침 실패(non-fatal):', e.message));
+    result = await completeCertLoginOnce(page, password);
+  }
+  return result;
+}
+
+async function completeCertLoginOnce(page, password) {
   // (버그 수정) 예전엔 "#btnLgn이 보이는지"(최대 5초)와 "certPassword가 보이는지"(최대 15초)를
   // 순서대로 각각 끝까지 기다렸다 - 이미 로그인된 세션(인증서 모달 자체가 안 뜨는 경우)에서도
   // 매번 이 두 대기를 합쳐 최대 20초를 그냥 허비하고 있었다(사용자가 배포판에서 재현: "복무
