@@ -3050,6 +3050,88 @@ async function refocusIgnoringLatecomers(context, target, { wait = 900 } = {}) {
 }
 
 /**
+ * (신규, 사용자 로그 2026-10-07/08 부팅) 부팅 직후엔 네트워크가 덜 올라와 G-ONE 첫 요청이
+ * chrome-error로 끝나고, 일회성 SSO 토큰이 소모돼 이후 재시도까지 연쇄 실패했다. SSO 링크를
+ * 열기 전에 G-ONE 호스트에 TCP/TLS로 닿는지 먼저 확인한다(HTTP 응답이 오면 상태코드와 무관하게 OK).
+ * 끝내 안 닿아도 false만 돌려주고 호출 쪽은 계속 진행한다.
+ */
+function probeHost(hostname, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    const req = require('node:https').request(
+      { host: hostname, method: 'HEAD', path: '/', timeout: timeoutMs },
+      (res) => { res.resume(); resolve(true); }
+    );
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
+
+async function waitForHostReachable(url, { maxWaitMs = 60000, intervalMs = 5000 } = {}) {
+  let hostname;
+  try { hostname = new URL(url).hostname; } catch { return true; }
+  const deadline = Date.now() + maxWaitMs;
+  for (let n = 1; ; n++) {
+    if (await probeHost(hostname)) {
+      if (n > 1) console.log(`[PortalPet] ${hostname} 연결 확인됨 (${n}번째 시도)`);
+      return true;
+    }
+    if (Date.now() + intervalMs > deadline) break;
+    if (n === 1) console.log(`[PortalPet] ${hostname}에 아직 연결되지 않음 - 네트워크 준비를 최대 ${Math.round(maxWaitMs / 1000)}초 기다림`);
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  console.log(`[PortalPet] ${hostname} 연결 확인 실패 - 그대로 진행`);
+  return false;
+}
+
+/** 실제로 G-ONE에 도착했는지: 브라우저 오류 페이지/포털 로그인 페이지로 튕기지 않았고 G-ONE 호스트여야 한다. */
+async function arrivedOnGone(target, subdomain) {
+  const url = target.url();
+  if (url.startsWith('chrome-error:') || /bpm_lgn_lg00_001\.do/.test(url)) return false;
+  return isOnSystem(target, 'gone', subdomain);
+}
+
+/**
+ * G-ONE 첫 진입이 실패한 뒤의 복구. 시도마다 대기 시간을 늘리며(10/20/40초), 매번 네트워크
+ * 연결을 확인하고 포털 세션을 새로 잡아 새 SSO 토큰으로 다시 들어간 뒤 도착을 재검증한다.
+ * 두 번째 시도부터는 G-ONE 쪽 쿠키를 지워 반쪽짜리 SSO 세션이 남지 않게 한다.
+ * (포털 홈이 "로그인 불필요"로 판단돼도 SSO 쪽은 깨져 있을 수 있어 포털 로그인 URL부터 다시 연다.)
+ */
+async function recoverGoneEntry(context, page, target, subdomain, password, goneUrl) {
+  const waits = [10000, 20000, 40000];
+  for (let i = 0; i < waits.length; i++) {
+    console.log(`[PortalPet] G-ONE 진입 복구 ${i + 1}/${waits.length} - ${waits[i] / 1000}초 대기 후 세션 재확립`);
+    await target.waitForTimeout(waits[i]).catch(() => {});
+    await waitForHostReachable(goneUrl, { maxWaitMs: 30000 });
+    if (i >= 1) {
+      try {
+        const stale = (await context.cookies()).filter((c) => /(^|\.)gdp[-.a-z0-9]*\.goe\.go\.kr$/.test(c.domain.replace(/^\./, '')));
+        for (const c of stale) await context.clearCookies({ name: c.name, domain: c.domain });
+        console.log(`[PortalPet] G-ONE 쪽 쿠키 ${stale.length}개 정리`);
+      } catch (e) {
+        console.log('[PortalPet] G-ONE 쿠키 정리 실패(계속 진행):', e.message);
+      }
+    }
+    const resessioned = await reestablishPortalSession(page, subdomain, password);
+    const retryGoneUrl = resessioned ? await readPortalMenuUrl(page, 'G-ONE') : null;
+    if (!retryGoneUrl) {
+      console.log('[PortalPet] G-ONE SSO 링크를 읽지 못함 - 다음 복구 시도로');
+      continue;
+    }
+    console.log(`[PortalPet] portal menu "G-ONE" 재시도 -> ${retryGoneUrl}`);
+    await gotoWithRetry(target, retryGoneUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] G-ONE 재시도 goto 실패:', e.message));
+    await closeAnyPopupsForAWhile(target);
+    await target.waitForTimeout(900);
+    if (await arrivedOnGone(target, subdomain)) {
+      console.log('[PortalPet] G-ONE 진입 복구 성공:', target.url());
+      return true;
+    }
+    console.log('[PortalPet] G-ONE 진입 복구 실패 - 도착하지 못함:', target.url());
+  }
+  return false;
+}
+
+/**
  * G-ONE 내부 메뉴로 이동. 실측 확인된 DOM(2026-07-27): 상단 네비게이션 바의
  * <div class="cl-navigationbar-text cl-text">라벨</div> 형태 탭들 - "AI 대화·초안",
  * "메일", "일정", "할 일", "메신저", "Meeting", "Drive" 등. 텍스트로 클릭하면 된다.
@@ -3091,6 +3173,9 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
     // 결재 현황 자동 확인(checkPortalDashboard)이 포털 홈 탭을 못 찾아 새로 하나 더 열어야
     // 했다. 포털 홈 탭(page)은 그대로 두고, G-ONE은 처음부터 새 탭에서 연다 - 그러면 포털 홈
     // 탭이 계속 남아있어서 나중에 결재 현황 확인이 새 탭을 열 필요가 없다.
+    // 일회성 SSO 토큰을 읽기 "전에" G-ONE 호스트에 닿는지 확인(부팅 직후 네트워크 미준비 대비 -
+    // 읽은 뒤에 오래 기다리면 토큰이 만료될 수 있다).
+    if (GONE_URL_BY_SUBDOMAIN[subdomain]) await waitForHostReachable(GONE_URL_BY_SUBDOMAIN[subdomain]);
     const goneUrl = await readPortalMenuUrl(page, 'G-ONE');
     if (goneUrl) {
       target = await openFreshTab(context);
@@ -3119,23 +3204,16 @@ async function openGoneSubMenu(context, page, subdomain, candidates, password, a
       await closeAnyPopupsForAWhile(target);
       await target.waitForTimeout(900);
     }
-    if (!(await isOnSystem(target, 'gone', subdomain))) {
+    if (!(await arrivedOnGone(target, subdomain))) {
       console.log('[PortalPet] G-ONE 진입 실패로 보임(SSO 오류 페이지 추정) - 인증서 로그인부터 재시도:', target.url());
-      // (버그 수정, 사용자 재현: 2026-09-07 부팅 후 자동 실행 시 재발) 예전엔 4초만 대기한
-      // 뒤 같은 포털 홈 탭(page)에서 SSO 링크를 다시 읽었는데, page 자체가 이미 반쪽짜리
-      // 세션인 채로 남아있어 같은(또는 만료된) 토큰을 또 읽어와 그대로 재발했다(실측 확인:
-      // 4초 대기 재시도까지 실패). page를 포털 로그인 URL로 다시 보내 인증서 로그인부터
-      // 새로 밟아 세션을 재확립한 뒤에야 새 SSO 토큰을 읽는다.
-      const resessioned = await reestablishPortalSession(page, subdomain, password);
-      const retryGoneUrl = resessioned ? await readPortalMenuUrl(page, 'G-ONE') : null;
-      if (retryGoneUrl) {
-        console.log(`[PortalPet] portal menu "G-ONE" 재시도 -> ${retryGoneUrl}`);
-        await gotoWithRetry(target, retryGoneUrl, { waitUntil: 'domcontentloaded' }).catch((e) => console.log('[PortalPet] G-ONE 재시도 goto 실패:', e.message));
-        await closeAnyPopupsForAWhile(target);
-        await target.waitForTimeout(900);
-      } else {
-        console.log('[PortalPet] G-ONE 세션 재확립 실패 - 이번 실행은 실패로 남김');
-      }
+      // (버그 수정, 사용자 재현: 2026-09-07, 2026-10-07/08 부팅 후 자동 실행 시 재발) page 자체가
+      // 반쪽짜리 세션인 채로 남아 같은(또는 만료된) 토큰을 또 읽어오고, 재시도 뒤 도착 여부도
+      // 확인하지 않아 "메신저를 못 찾음"으로만 기록됐다. 대기 시간을 늘리며 포털 로그인부터
+      // 새로 밟고 도착까지 재검증한다(recoverGoneEntry).
+      const recovered = goneUrl
+        ? await recoverGoneEntry(context, page, target, subdomain, password, goneUrl)
+        : false;
+      if (!recovered) console.log('[PortalPet] G-ONE 진입 복구 끝내 실패 - 이번 실행은 실패로 남김');
     }
   }
   // G-ONE 기본 진입 화면(AI 대화·초안 탭)에 공지 팝업이 뜨는 경우가 있다(실측 확인:
