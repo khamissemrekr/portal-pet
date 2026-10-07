@@ -24,9 +24,8 @@ const COLUMNS = [
   {
     key: 'gone', label: 'G-ONE',
     subs: [
-      // (수정) 사용자 요청으로 메뉴 화면에서만 숨김 - 기능 코드/자동 실행 설정(autoLaunchMessenger)은
-      // 그대로 둔다.
-      // { key: 'gone_msg', label: '메신저' },
+      // (복원, 사용자 요청) 메신저 자동 로그인 실패 시 직접 눌러 로그인할 수 있도록 메뉴에 다시 노출.
+      { key: 'gone_msg', label: '메신저' },
       { key: 'gone_ai', label: 'AI 대화·초안' },
       { key: 'gone_schedule', label: '일정' },
       { key: 'edmgr_approval', label: '교데통' },

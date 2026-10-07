@@ -908,6 +908,11 @@ async function runStartupAutoLaunch(isRetry = false) {
   const launch = (serviceKey) => loginEngine.launchService(
     serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', launchOptions
   );
+  // 자동 로그인이 끝내 실패했을 때의 보조 수단: password를 null로 넘겨 인증서 창에서 사용자가
+  // 직접 입력하게 한다(autoLogin 꺼짐 모드와 같은 경로).
+  const launchManual = (serviceKey) => loginEngine.launchService(
+    serviceKey, subdomain, null, config.browserProfile || null, config.browserChannel || 'chrome', launchOptions
+  );
 
   // (성능 수정, 사용자 요청: "모든 로딩이 끝날 때까지 너무 오래 걸림") 예전엔 메신저 실행 뒤
   // verifyBrityMessengerLaunchOutcome(최대 15초) + 재시도 대기(5초) + 재실행 + 재확인까지 전부 끝난
@@ -928,7 +933,7 @@ async function runStartupAutoLaunch(isRetry = false) {
       console.error('[PortalPet] 자동 실행(gone_msg) 실패:', err);
     }
     if (launched) {
-      verifyMessengerAndRetryInBackground(launch, attemptStartedAt).catch((err) =>
+      verifyMessengerAndRetryInBackground(launch, attemptStartedAt, launchManual).catch((err) =>
         console.error('[PortalPet] 메신저 로그인 확인/재시도 중 오류:', err)
       );
     }
@@ -969,7 +974,34 @@ async function runStartupAutoLaunch(isRetry = false) {
 // 아니므로 재시도하지 않는다 - 이미 성공한 상태에서 재시도하면 두 경로가 동시에 SSO 티켓을
 // 소모하는 그 이중 실행 레이스(launchService 안의 버그 수정 주석 참고)를 스스로 재현하게 되기
 // 때문이다. runStartupAutoLaunch가 기다리지 않도록 백그라운드에서 실행된다.
-async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt) {
+// 메신저 자동 로그인이 끝내 실패했을 때: 알림을 띄우고, 클릭하면 인증서 창에서 직접 로그인하는
+// 수동 모드로 메신저를 다시 연다. 알림을 놓쳤을 때를 대비해 한 번만 띄운다.
+let messengerFailureNotified = false;
+let manualMessengerLaunching = false;
+let messengerNotification = null; // 클릭 전에 GC되지 않도록 참조 유지
+function notifyMessengerLoginFailed(launchManual) {
+  if (messengerFailureNotified || !Notification.isSupported()) return;
+  messengerFailureNotified = true;
+  const n = messengerNotification = new Notification({
+    title: 'PortalPet - 메신저 로그인 실패',
+    body: '메신저에 자동으로 로그인하지 못했습니다. 이 알림을 클릭하면 인증서 로그인 창을 열어 직접 로그인할 수 있어요.',
+  });
+  n.on('click', async () => {
+    if (manualMessengerLaunching) return;
+    manualMessengerLaunching = true;
+    try {
+      console.log('[PortalPet] 메신저 직접 로그인 시작(알림 클릭) - 인증서 창에서 사용자 입력을 기다림');
+      await launchManual('gone_msg');
+    } catch (err) {
+      console.error('[PortalPet] 메신저 직접 로그인 실패:', err);
+    } finally {
+      manualMessengerLaunching = false;
+    }
+  });
+  n.show();
+}
+
+async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt, launchManual) {
   const maxAttempts = 2;
   let attemptStartedAt = firstAttemptStartedAt;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -980,6 +1012,7 @@ async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt
         await launch('gone_msg');
       } catch (err) {
         console.error('[PortalPet] 자동 실행(gone_msg) 재시도 실패:', err);
+        notifyMessengerLoginFailed(launchManual);
         return;
       }
     }
@@ -998,6 +1031,7 @@ async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt
       await new Promise((resolve) => setTimeout(resolve, 5000));
     } else {
       console.log(`[PortalPet] 메신저 로그인 재시도 후에도 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 더 이상 재시도하지 않음`);
+      notifyMessengerLoginFailed(launchManual);
     }
   }
 }
