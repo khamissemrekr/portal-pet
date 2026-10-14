@@ -2864,6 +2864,8 @@ $logDir = "C:\\BrityWorks\\BrityMessenger\\Launcher\\log"
 
 $windowFound = $false
 $duplicateDetected = $false
+$maxLogStarts = 0
+$maxProcStarts = 0
 
 while ((Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 500
@@ -2879,21 +2881,32 @@ while ((Get-Date) -lt $deadline) {
       if ($_.StartTime -ge $sinceTime -and $_.Path -like "*BrityWorks*") { $launcherStarts += 1 }
     } catch {}
   }
-  if ($launcherStarts -ge 2) { $duplicateDetected = $true }
-
+  # Launcher가 금방 종료돼 프로세스로는 못 잡는 경우가 있어 로그의 "Started Newly" 줄도 센다.
+  # (줄 시각이 sinceTime 이후인 것만 - 같은 날 오전 부팅의 옛 줄이 섞이면 오탐이 난다)
+  $logStarts = 0
   if (Test-Path $logDir) {
     Get-ChildItem -Path $logDir -Filter "*.log" -ErrorAction SilentlyContinue |
       Where-Object { $_.LastWriteTime -ge $sinceTime } |
       ForEach-Object {
-        $tail = Get-Content -Path $_.FullName -Tail 200 -ErrorAction SilentlyContinue
-        if ($tail -match "already running client" -or $tail -match "exist already") { $duplicateDetected = $true }
+        $tail = Get-Content -Path $_.FullName -Tail 300 -ErrorAction SilentlyContinue
+        foreach ($line in $tail) {
+          if ($line -notmatch "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})") { continue }
+          $lineTime = [DateTime]::ParseExact($Matches[1], "yyyy-MM-dd HH:mm:ss", $null)
+          if ($lineTime -lt $sinceTime.AddSeconds(-1)) { continue }
+          if ($line -match "Launcher is Started Newly") { $logStarts += 1 }
+          if ($line -match "already running client" -or $line -match "exist already") { $duplicateDetected = $true }
+        }
       }
   }
+  if ($logStarts -gt $maxLogStarts) { $maxLogStarts = $logStarts }
+  if ($launcherStarts -gt $maxProcStarts) { $maxProcStarts = $launcherStarts }
+  if ($maxLogStarts -ge 2 -or $maxProcStarts -ge 2) { $duplicateDetected = $true }
 
-  if ($windowFound -and -not $duplicateDetected) { break }
+  if ($windowFound -and $maxLogStarts -ge 1 -and -not $duplicateDetected) { break }
 }
 
-$result = @{ windowFound = $windowFound; duplicateDetected = $duplicateDetected } | ConvertTo-Json -Compress
+$launcherStarted = ($maxLogStarts -ge 1 -or $maxProcStarts -ge 1)
+$result = @{ windowFound = $windowFound; duplicateDetected = $duplicateDetected; launcherStarted = $launcherStarted } | ConvertTo-Json -Compress
 Write-Output "RESULT:$result"
 `;
 
@@ -2925,7 +2938,7 @@ Write-Output "RESULT:$result"
         }
         try {
           const parsed = JSON.parse(match[1]);
-          const outcome = { checked: true, windowFound: !!parsed.windowFound, duplicateDetected: !!parsed.duplicateDetected };
+          const outcome = { checked: true, windowFound: !!parsed.windowFound, duplicateDetected: !!parsed.duplicateDetected, launcherStarted: !!parsed.launcherStarted };
           console.log('[PortalPet] 메신저 로그인 확인 결과:', outcome);
           resolve(outcome);
         } catch (e) {
@@ -2937,6 +2950,25 @@ Write-Output "RESULT:$result"
       console.log('[PortalPet] 메신저 로그인 확인 스크립트 준비 실패(non-fatal):', e.message);
       if (scriptPath) fs.unlink(scriptPath, () => {});
       resolve({ checked: false, windowFound: false, duplicateDetected: false });
+    }
+  });
+}
+
+/**
+ * 꼬인 Brity 메신저/Launcher 프로세스를 정리한다(재시도 직전용). 이중 실행으로 로그아웃 상태가 된
+ * 클라이언트가 남아 있으면 재시도 때 Launcher가 "already running client"로 새 클라이언트를 못
+ * 띄우거나 옛 세션을 그대로 쓰기 때문이다. C:\BrityWorks 아래 프로세스만 대상으로 한다.
+ */
+function killBrityMessengerProcesses() {
+  if (process.platform !== 'win32') return Promise.resolve();
+  const script = `Get-Process -Name "BrityMessenger","Launcher" -ErrorAction SilentlyContinue | ForEach-Object { try { if ($_.Path -like "*BrityWorks*") { $_ | Stop-Process -Force } } catch {} }`;
+  return new Promise((resolve) => {
+    try {
+      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { stdio: 'ignore', windowsHide: true });
+      child.on('error', () => resolve());
+      child.on('exit', () => resolve());
+    } catch (e) {
+      resolve();
     }
   });
 }
@@ -3613,7 +3645,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
         console.log('[PortalPet] 교외체험학습보고서관리 자동 필터/조회 실패(non-fatal):', e.message));
       break;
     case 'gone_msg':
-      targetPage = await openGoneSubMenu(context, page, subdomain, ['메신저'], password, alreadyInTargetSystem);
+      targetPage = await openGoneSubMenu(context, page, subdomain, ['메신저'], password, options.freshMessengerLaunch ? false : alreadyInTargetSystem);
       break;
     case 'gone_ai':
       targetPage = await openGoneSubMenu(context, page, subdomain, ['AI 대화·초안'], password, alreadyInTargetSystem);
@@ -4031,4 +4063,5 @@ module.exports = {
   checkFieldTripReportPending: (...args) => runQueued(() => checkFieldTripReportPending(...args)),
   // (검증 전용 - 브라우저 자동화 큐와 무관하게 OS 프로세스/로그만 폴링하므로 runQueued로 감싸지 않는다)
   verifyBrityMessengerLaunchOutcome: (...args) => verifyBrityMessengerLaunchOutcome(...args),
+  killBrityMessengerProcesses: (...args) => killBrityMessengerProcesses(...args),
 };

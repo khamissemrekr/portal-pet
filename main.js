@@ -905,8 +905,8 @@ async function runStartupAutoLaunch(isRetry = false) {
     popupAutoCloseEnabled: config.popupAutoCloseEnabled !== false,
   };
   let loginFailed = false;
-  const launch = (serviceKey) => loginEngine.launchService(
-    serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', launchOptions
+  const launch = (serviceKey, extraOptions = {}) => loginEngine.launchService(
+    serviceKey, subdomain, password, config.browserProfile || null, config.browserChannel || 'chrome', { ...launchOptions, ...extraOptions }
   );
   // 자동 로그인이 끝내 실패했을 때의 보조 수단: password를 null로 넘겨 인증서 창에서 사용자가
   // 직접 입력하게 한다(autoLogin 꺼짐 모드와 같은 경로).
@@ -1006,10 +1006,15 @@ async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt
   let attemptStartedAt = firstAttemptStartedAt;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (attempt > 1) {
+      // 꼬인 클라이언트/Launcher를 먼저 정리해야 재시도가 새 세션으로 깨끗하게 뜬다.
+      await loginEngine.killBrityMessengerProcesses();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       attemptStartedAt = new Date();
       try {
         console.log(`[PortalPet] 시작 시 자동 실행: gone_msg (재시도 ${attempt}/${maxAttempts})`);
-        await launch('gone_msg');
+        // 재시도는 GNB 클릭만으로는 Launcher가 안 뜨는 일이 있어(2026-10-14 실측) 포털 홈에서 새
+        // SSO 티켓으로 다시 진입한다.
+        await launch('gone_msg', { freshMessengerLaunch: true });
       } catch (err) {
         console.error('[PortalPet] 자동 실행(gone_msg) 재시도 실패:', err);
         notifyMessengerLoginFailed(launchManual);
@@ -1022,12 +1027,14 @@ async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt
       console.log('[PortalPet] 메신저 로그인 성공 여부를 확인할 수 없음 - 재시도하지 않고 넘어감');
       return;
     }
-    if (outcome.windowFound && !outcome.duplicateDetected) {
+    // Launcher가 실제로 뜬 흔적(launcherStarted)이 없으면 창이 있어도 성공으로 보지 않는다
+    // (재시도 클릭이 실행기를 못 띄웠는데 남아 있던 옛 창 때문에 "성공"으로 오판한 사례).
+    if (outcome.windowFound && outcome.launcherStarted && !outcome.duplicateDetected) {
       console.log('[PortalPet] 메신저 로그인 확인됨');
       return;
     }
     if (attempt < maxAttempts) {
-      console.log(`[PortalPet] 메신저 로그인 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 잠시 뒤 재시도`);
+      console.log(`[PortalPet] 메신저 로그인 실패로 보임(windowFound:${outcome.windowFound}, launcherStarted:${outcome.launcherStarted}, duplicateDetected:${outcome.duplicateDetected}) - 잠시 뒤 재시도`);
       await new Promise((resolve) => setTimeout(resolve, 5000));
     } else {
       console.log(`[PortalPet] 메신저 로그인 재시도 후에도 실패로 보임(windowFound:${outcome.windowFound}, duplicateDetected:${outcome.duplicateDetected}) - 더 이상 재시도하지 않음`);
