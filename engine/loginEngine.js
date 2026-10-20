@@ -3428,7 +3428,12 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // 컨텍스트의 모든 탭을 훑어 목적 시스템에 이미 가 있는 탭이 있으면 새 탭을 열지 않고 그
   // 탭을 그대로 재사용한다(같은 시스템 안에서 하위 메뉴만 바뀌는 건 기존 로직과 동일하게
   // 그 탭 안에서 처리됨 - 나이스 복무/출장 신청과 같은 방식).
-  const existingSystemTab = targetSystem ? await findExistingSystemTabPage(context, subdomain, targetSystem) : null;
+  // (버그 수정, 사용자 로그 2026-10-21 부팅) 메신저 재시도(freshMessengerLaunch)는 포털 홈부터 다시
+  // 밟는데, 이미 열린 G-ONE 탭을 재사용하면 그 탭이 포털 홈으로 덮어써진다 - 부팅 직후 먼저 열어둔
+  // "일정" 탭이 유일한 gone 탭이라 그 탭이 사라지고 일정 화면이 안 남았다. 재시도는 gone 탭을
+  // 재사용하지 않고(아래 포털 홈 탭 재사용 또는 새 탭), 기존 G-ONE 탭들은 건드리지 않는다.
+  const freshMessenger = options.freshMessengerLaunch === true;
+  const existingSystemTab = targetSystem && !freshMessenger ? await findExistingSystemTabPage(context, subdomain, targetSystem) : null;
 
   // (버그 수정, 사용자 재현: "업무포털 메인이 두 번 뜨고 있어") "포털 홈 탭은 그대로 두고
   // G-ONE은 새 탭에서 연다"로 바꾼 뒤(일정 자동 실행 등), 로그인했던 원래 포털 홈 탭이 계속
@@ -3439,7 +3444,7 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
   // 타므로, 여기서 따로 findExistingPortalHomePage로 이미 열려 있는 포털 홈 탭을 찾아 재사용한다
   // (checkPortalDashboard가 쓰는 것과 동일한 헬퍼).
   const existingPortalHomeTab =
-    serviceKey === 'portal_home' ? await findExistingPortalHomePage(context, subdomain) : null;
+    serviceKey === 'portal_home' || freshMessenger ? await findExistingPortalHomePage(context, subdomain) : null;
 
   let page;
   // (버그 수정, checkPortalDashboard와 동일한 원인: 사용자 재현 - 재부팅 직후 프로그램이
@@ -3465,7 +3470,8 @@ async function launchService(serviceKey, subdomain, password, browserProfile = n
     // (수정) 이미 다른 화면이 떠서 사용 중이면(사용자가 방금 전 메뉴로 연 화면이 아직 열려 있으면)
     // 그 화면을 그대로 두고 이번 클릭은 새 탭에서 실행한다 - 예전엔 항상 같은 탭을 재사용해서
     // 이미 열어둔 작업 화면이 새 메뉴 클릭에 밀려 사라지는 문제가 있었다(사용자 요청으로 확인).
-    const openNewTab = await shouldOpenNewTabFor(serviceKey, subdomain);
+    // 메신저 재시도는 sharedPage(보통 방금 연 일정 탭)를 재사용하지 않고 항상 새 탭에서 시작한다.
+    const openNewTab = freshMessenger || await shouldOpenNewTabFor(serviceKey, subdomain);
     page = openNewTab ? await openFreshTab(context) : await getPage(context);
     freshlyOpenedTab = openNewTab;
   }
