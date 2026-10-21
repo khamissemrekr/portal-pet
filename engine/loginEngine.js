@@ -4045,6 +4045,50 @@ async function checkFieldTripReportPending(subdomain, password, browserProfile =
   return { ok: result.ok, loggedIn: result.loggedIn, pendingCount: result.afterNavigateResult };
 }
 
+// 업무포털 메인 우측 상단의 "세션 시간 초기화" 버튼(사용자 제공 HTML, 2026-10-21). 포털 세션은
+// 기본 60분이고 이 버튼을 누르면 남은 시간이 다시 채워진다.
+const PORTAL_SESSION_RESET_SELECTOR = 'button.btn-refresh[title="세션 시간 초기화"]';
+
+/**
+ * (신규, 사용자 요청: 일정 시간이 지나면 업무포털 세션이 끊겨 나이스/K-에듀파인/G-ONE까지 함께
+ * 로그아웃됨) 이미 열려 있는 업무포털 메인 탭에서 공식 "세션 시간 초기화" 버튼을 눌러 세션을
+ * 유지한다. 탭 이동/새로고침/새 탭 없이 버튼 클릭 한 번이라 사용 중인 화면을 방해하지 않는다.
+ * 로그인/되살리기는 하지 않는다 - 이미 만료돼 버튼이 없으면(로그인 화면 등) 아무것도 안 하고
+ * 결과만 돌려주며, 만료 복구는 결재 현황 자동 확인(checkPortalDashboard)의 몫이다.
+ * 버튼 클릭 직후 나가는 요청의 메서드+경로만 로그로 남겨(쿼리/토큰 제외) 실제로 서버에 닿는지
+ * 진단할 수 있게 한다.
+ */
+async function keepPortalSessionAlive() {
+  if (!sharedContext) return { ok: false, reason: 'no-browser' };
+  for (const p of sharedContext.pages()) {
+    if (p.isClosed()) continue;
+    let host = '';
+    try { host = currentHostname(p); } catch { continue; }
+    if (!host.endsWith('.eduptl.kr')) continue;
+    const button = p.locator(PORTAL_SESSION_RESET_SELECTOR).first();
+    if (!(await button.count().catch(() => 0))) continue;
+
+    const requests = [];
+    const onRequest = (req) => {
+      try { requests.push(`${req.method()} ${new URL(req.url()).pathname}`); } catch { /* 무시 */ }
+    };
+    p.on('request', onRequest);
+    try {
+      // 합성 클릭(el.click())이면 탭이 백그라운드여도, 화면 밖이어도 동작한다.
+      await button.evaluate((el) => el.click());
+      await p.waitForTimeout(2000);
+    } catch (e) {
+      console.log('[PortalPet] 세션 시간 초기화 버튼 클릭 실패(non-fatal):', e.message);
+      return { ok: false, reason: 'click-failed' };
+    } finally {
+      p.off('request', onRequest);
+    }
+    console.log('[PortalPet] 업무포털 "세션 시간 초기화" 버튼 클릭 - 이후 요청:', requests.slice(0, 5));
+    return { ok: true, requests };
+  }
+  return { ok: false, reason: 'no-portal-tab' };
+}
+
 /**
  * (버그 수정) launchService/checkEdufineApprovalCount는 sharedContext/sharedPage/mainServiceTabs
  * 같은 모듈 전역 상태를 공유한다. 그런데 "프로그램 실행 시 자동 실행(메신저/일정)"이 main.js에서
@@ -4065,6 +4109,8 @@ function runQueued(fn) {
 module.exports = {
   launchService: (...args) => runQueued(() => launchService(...args)),
   checkPortalDashboard: (...args) => runQueued(() => checkPortalDashboard(...args)),
+  // 다른 브라우저 작업(탭 이동/닫기)과 겹치지 않도록 같은 큐로 순서를 맞춘다.
+  keepPortalSessionAlive: (...args) => runQueued(() => keepPortalSessionAlive(...args)),
   checkFieldTripApplyPending: (...args) => runQueued(() => checkFieldTripApplyPending(...args)),
   checkFieldTripReportPending: (...args) => runQueued(() => checkFieldTripReportPending(...args)),
   // (검증 전용 - 브라우저 자동화 큐와 무관하게 OS 프로세스/로그만 폴링하므로 runQueued로 감싸지 않는다)

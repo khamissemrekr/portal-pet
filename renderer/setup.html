@@ -347,6 +347,16 @@
       </div>
 
       <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+        <input id="keepPortalSession" type="checkbox" style="width:auto; margin-top:0;" />
+        <span>업무포털 세션 자동 유지</span>
+      </label>
+      <div class="note">
+        업무포털 세션(기본 60분)이 끊기면 나이스·K-에듀파인·G-ONE도 함께 로그아웃됩니다. 켜 두면 10분마다
+        업무포털 메인 화면의 "세션 시간 초기화" 버튼을 자동으로 눌러 줍니다(기본 꺼짐). 업무포털 메인
+        탭이 열려 있을 때만 동작하며, 기관의 자동 로그아웃 정책을 우회하는 효과가 있으니 필요할 때만 켜세요.
+      </div>
+
+      <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
         <input id="popupAutoCloseEnabled" type="checkbox" checked style="width:auto; margin-top:0;" />
         <span>공지 팝업 자동 닫기</span>
       </label>
@@ -718,6 +728,7 @@
       document.getElementById('autoLaunchSchedule').checked = !!config?.autoLaunchSchedule;
       document.getElementById('minimizeMessengerOnLaunch').checked = config?.minimizeMessengerOnLaunch !== false;
       document.getElementById('popupAutoCloseEnabled').checked = config?.popupAutoCloseEnabled !== false;
+      document.getElementById('keepPortalSession').checked = !!config?.keepPortalSession;
       dashboardAutoRefreshInput.checked = config?.dashboardAutoRefresh !== false;
       dashboardMinutesInput.value = String(config?.dashboardRefreshMinutes ?? 5);
       syncDashboardMinutesEnabled();
@@ -778,6 +789,7 @@
       const autoLaunchSchedule = document.getElementById('autoLaunchSchedule').checked;
       const minimizeMessengerOnLaunch = document.getElementById('minimizeMessengerOnLaunch').checked;
       const popupAutoCloseEnabled = document.getElementById('popupAutoCloseEnabled').checked;
+      const keepPortalSession = document.getElementById('keepPortalSession').checked;
       const panelOpacity = Number(opacityInput.value) / 100;
       const dashboardAutoRefresh = dashboardAutoRefreshInput.checked;
       const dashboardRefreshMinutes = Number(dashboardMinutesInput.value) || 5;
@@ -806,7 +818,7 @@
         fieldTripCheckTime1, fieldTripCheckTime2,
         fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
         panelAutoCloseEnabled, panelAutoCloseSeconds, neisRoleMode, neisRoleCustomText, certUserName,
-        hiddenMenuItems, popupAutoCloseEnabled, uiTheme, characterImages,
+        hiddenMenuItems, popupAutoCloseEnabled, uiTheme, characterImages, keepPortalSession,
       });
     });
   </script>

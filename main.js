@@ -708,7 +708,7 @@ ipcMain.handle('save-setup', (_evt, {
   fieldTripApplyAutoRefresh, fieldTripReportAutoRefresh,
   panelAutoCloseEnabled, panelAutoCloseSeconds, autoStartOnLogin, minimizeMessengerOnLaunch,
   neisRoleMode, neisRoleCustomText, certUserName, hiddenMenuItems, popupAutoCloseEnabled, uiTheme,
-  characterImages,
+  characterImages, keepPortalSession,
 }) => {
   // config.json이 아니라 OS 자체 설정이라 별도로 처리(트레이 메뉴 체크박스와 동일한 함수 재사용).
   setAutoStartOnLogin(!!autoStartOnLogin);
@@ -791,6 +791,9 @@ ipcMain.handle('save-setup', (_evt, {
     // 공지 팝업이 화면을 가려도 사용자가 직접 닫아야 하지만, 자동 닫기 로직이 다른 화면 요소를
     // 잘못 건드릴 가능성 자체를 완전히 차단할 수 있다.
     popupAutoCloseEnabled: popupAutoCloseEnabled !== false,
+    // (신규, 사용자 요청) 업무포털 "세션 시간 초기화" 버튼을 주기적으로 눌러 세션이 끊기지 않게 함.
+    // 기관의 유휴 로그아웃을 우회하는 효과가 있어 기본값 false(꺼짐) - 명시적으로 켠 경우만 동작.
+    keepPortalSession: !!keepPortalSession,
     uiTheme: uiTheme === 'dark' ? 'dark' : 'light', // 화면 테마(라이트/다크) - 설정 창/정보 창/캐릭터 메뉴 모두 이 값을 따른다.
     characterImages: safeCharacterImages, // 사용자가 올린 캐릭터 이미지(평상시/드래그할 때/오래 안 쓸 때) - 비어있으면 기본 호랑이 이미지 사용
     petPosition: previous.petPosition ?? null, // 설정 창 항목이 아니라 드래그로 저장되는 값 - 설정 저장 때 지워지지 않게 유지
@@ -800,6 +803,7 @@ ipcMain.handle('save-setup', (_evt, {
   // 펫 패널이 자주 가는 사이트 목록 등 바뀐 설정을 바로 반영하도록 알림.
   if (win && !win.isDestroyed()) win.webContents.send('config-updated');
   scheduleDashboardRefresh(); // 주기/on-off가 바뀌었을 수 있으니 즉시 재적용
+  scheduleSessionKeepAlive();
   scheduleFieldTripApplyRefresh();
   scheduleFieldTripReportRefresh();
   return { ok: true };
@@ -1071,6 +1075,28 @@ function scheduleDashboardRefresh() {
   console.log(`[PortalPet] 결재 현황 자동 확인 스케줄 설정: ${minutes}분마다`);
   dashboardTimer = setInterval(runDashboardRefresh, minutes * 60 * 1000);
   runDashboardRefresh(); // 켜자마자 한 번 바로 확인해서 배지를 채워둔다.
+}
+
+// ===== 업무포털 세션 유지 =====
+// 업무포털 세션은 기본 60분이고, 끊기면 나이스/K-에듀파인/G-ONE도 함께 로그아웃된다. 포털 메인
+// 탭의 공식 "세션 시간 초기화" 버튼을 10분마다 눌러 끊기지 않게 한다(loginEngine.keepPortalSessionAlive).
+// 로그인/탭 열기는 하지 않으므로 포털 탭이 없거나 이미 만료됐으면 그냥 건너뛴다.
+const SESSION_KEEP_ALIVE_MINUTES = 10;
+let sessionKeepAliveTimer = null;
+
+function scheduleSessionKeepAlive() {
+  if (sessionKeepAliveTimer) { clearInterval(sessionKeepAliveTimer); sessionKeepAliveTimer = null; }
+  const config = credentialStore.loadConfig();
+  if (!config.keepPortalSession) return;
+  console.log(`[PortalPet] 업무포털 세션 유지 스케줄 설정: ${SESSION_KEEP_ALIVE_MINUTES}분마다`);
+  sessionKeepAliveTimer = setInterval(async () => {
+    try {
+      const result = await loginEngine.keepPortalSessionAlive();
+      if (!result.ok) console.log(`[PortalPet] 업무포털 세션 유지 건너뜀: ${result.reason}`);
+    } catch (err) {
+      console.error('[PortalPet] 업무포털 세션 유지 실패(non-fatal):', err);
+    }
+  }, SESSION_KEEP_ALIVE_MINUTES * 60 * 1000);
 }
 
 // ===== 배지 값이 늘어나면 OS 알림 =====
@@ -1456,6 +1482,7 @@ app.whenReady().then(async () => {
     await runStartupAutoLaunch();
   }
   scheduleDashboardRefresh();
+  scheduleSessionKeepAlive();
   scheduleFieldTripApplyRefresh();
   scheduleFieldTripReportRefresh();
 });
