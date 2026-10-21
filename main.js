@@ -1029,8 +1029,13 @@ async function verifyMessengerAndRetryInBackground(launch, firstAttemptStartedAt
     }
     // Launcher가 실제로 뜬 흔적(launcherStarted)이 없으면 창이 있어도 성공으로 보지 않는다
     // (재시도 클릭이 실행기를 못 띄웠는데 남아 있던 옛 창 때문에 "성공"으로 오판한 사례).
-    if (outcome.windowFound && outcome.launcherStarted && !outcome.duplicateDetected) {
-      console.log('[PortalPet] 메신저 로그인 확인됨');
+    // (수정, 사용자 로그 2026-10-21) 창이 떠 있고 Launcher도 시작됐다면 duplicateDetected(Launcher 2회
+    // 시작 / "already running client")만으로는 실패로 보지 않는다 - 메신저는 이미 로그인된 상태였는데도,
+    // 첫 시도에서는 G-ONE이 일정 로딩 때 Launcher를 한 번 더 띄워 매번 중복으로 잡혀 정상 메신저를
+    // 강제 종료하고 재시도했다(재시도에서는 Launcher가 한 번만 떠서 통과). 창이 끝내 안 뜬 경우
+    // (windowFound:false)나 Launcher 흔적이 없는 경우는 그대로 재시도한다.
+    if (outcome.windowFound && outcome.launcherStarted) {
+      console.log(`[PortalPet] 메신저 로그인 확인됨${outcome.duplicateDetected ? ' (Launcher 중복 실행 신호가 있었지만 창이 떠 있어 성공으로 봄)' : ''}`);
       return;
     }
     if (attempt < maxAttempts) {
